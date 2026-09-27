@@ -1,4 +1,4 @@
-export function Footer({ version }: { readonly version: string }) {
+export function Footer({ version, build }: { readonly version: string; readonly build: string }) {
   return (
     <footer className="footer">
       <details className="disclaimer">
@@ -29,7 +29,7 @@ export function Footer({ version }: { readonly version: string }) {
         </p>
       </details>
       <p className="footer__credits">
-        METEO LAB v{version} · Alessandro Pezzali · Licenza MIT
+        METEO LAB v{version} · build <span className="footer__build">{build}</span> · Alessandro Pezzali · Licenza MIT
       </p>
     </footer>
   );

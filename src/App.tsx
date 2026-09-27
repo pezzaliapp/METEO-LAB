@@ -452,7 +452,7 @@ export function App() {
         </div>
       </main>
 
-      <Footer version={__APP_VERSION__} />
+      <Footer version={__APP_VERSION__} build={__BUILD_ID__} />
     </div>
   );
 }

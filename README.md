@@ -312,9 +312,24 @@ Nelle impostazioni del repository: **Settings → Pages → Build and deployment
 - Le richieste meteorologiche e le tile della mappa **non** vengono messe in cache dal service worker.
 - Offline restano disponibili interfaccia, simulazioni e scenari salvati; l'ultima osservazione (con il suo
   profilo) è mostrata come «ULTIMA OSSERVAZIONE» con il suo timestamp. La mappa richiede la connessione.
-- Aggiornamenti: il service worker è registrato con un URL diverso a ogni build (`sw.js?v=<bundle>`,
-  `updateViaCache: 'none'`), la pagina viene sempre rivalidata e la shell è precaricata ignorando la cache
-  HTTP: una nuova versione pubblicata sostituisce subito la precedente, anche con copie vecchie in una CDN.
+- **Aggiornamento automatico** (nessun hard refresh):
+  - ogni build ha un **BUILD_ID** generato a build-time (SHA del commit; visibile nel piè di pagina:
+    «v0.4.0 · build d93eecf») e pubblica `version.json` (`{ version, buildId }`);
+  - all'avvio e quando la pagina torna visibile, in primo piano, online o dalla back/forward cache (niente
+    polling, controlli accorpati entro 10 s) l'app legge `version.json` dalla rete (`cache: 'no-store'`;
+    Cloudflare non mette in cache il JSON) e chiama `registration.update()`;
+  - se è pubblicata un'altra build registra lo script di quella build, `sw.js?build=<BUILD_ID>`: un URL il
+    cui contenuto non cambia mai, quindi nessuna cache HTTP o CDN può servirne una copia vecchia; il nuovo
+    service worker si installa, si attiva subito (`skipWaiting`), elimina le cache delle build precedenti e
+    prende il controllo (`clients.claim`);
+  - `controllerchange` verso il service worker di un'altra build → **un solo reload**, protetto da
+    `sessionStorage` contro i loop; una pagina vecchia non riporta mai indietro il service worker;
+  - le navigazioni sono «rete prima» con rivalidazione (`cache: 'no-cache'`), la shell è precaricata con
+    `cache: 'reload'`; offline nessun controllo e nessun reload: resta la versione installata.
+- Cloudflare (dominio pubblico): serve `sw.js` e `assets/*.js` dalla propria cache per `max-age=14400`
+  (4 ore), non mette in cache HTML e JSON. La strategia sopra non richiede configurazioni. Facoltativo:
+  una Cache Rule «Bypass cache» per `/METEO-LAB/sw.js*` e `/METEO-LAB/version.json` rende solo più
+  prevedibili i controlli manuali, non è necessaria.
 
 ## Privacy
 

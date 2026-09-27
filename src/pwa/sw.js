@@ -6,6 +6,8 @@
  * Le richieste ai provider meteorologici e alle tile della mappa (altre origini)
  * non vengono intercettate né salvate: un dato meteo non deve mai apparire "LIVE" se non lo è.
  */
+// Build a cui appartiene questo service worker (SHA del commit, inserito in fase di build).
+const BUILD_ID = '__BUILD_ID__';
 const CACHE_VERSION = '__CACHE_VERSION__';
 const CACHE_NAME = `meteo-lab-shell-${CACHE_VERSION}`;
 // Elenco dei file dell'application shell, inserito in fase di build (vite.config.ts).
@@ -24,6 +26,12 @@ self.addEventListener('install', (event) => {
       .then((cache) => cache.addAll(PRECACHE.map((path) => new Request(path, { cache: 'reload' }))))
       .then(() => self.skipWaiting()),
   );
+});
+
+// Richiesta esplicita della pagina: attivarsi subito (in aggiunta a skipWaiting durante install).
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
+  if (event.data && event.data.type === 'GET_BUILD' && event.source) event.source.postMessage({ type: 'BUILD', buildId: BUILD_ID });
 });
 
 self.addEventListener('activate', (event) => {
@@ -48,6 +56,8 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   // Solo stessa origine: API meteo e tile della mappa passano direttamente alla rete.
   if (url.origin !== self.location.origin) return;
+  // version.json dice quale build è pubblicata: mai dalla cache, sempre dalla rete.
+  if (url.pathname.endsWith('/version.json')) return;
 
   if (request.mode === 'navigate') {
     // Rete prima, poi shell in cache (funzionamento offline dell'interfaccia).
