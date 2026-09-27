@@ -44,8 +44,15 @@ function serviceWorkerPlugin(): Plugin {
 
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string };
 
-export default defineConfig({
-  base: './',
+/**
+ * Base path di pubblicazione. GitHub Pages serve il progetto sotto /METEO-LAB/;
+ * build e anteprima (npm run preview) lo usano; in sviluppo (npm run dev) l'app resta
+ * alla radice. Sovrascrivibile con BASE_PATH.
+ */
+const PRODUCTION_BASE = process.env.BASE_PATH ?? '/METEO-LAB/';
+
+export default defineConfig(({ command, isPreview }) => ({
+  base: command === 'build' || isPreview ? PRODUCTION_BASE : '/',
   define: { __APP_VERSION__: JSON.stringify(pkg.version) },
   plugins: [react(), serviceWorkerPlugin()],
   worker: { format: 'es' },
@@ -58,4 +65,4 @@ export default defineConfig({
     environment: 'node',
     include: ['src/**/*.test.ts'],
   },
-});
+}));

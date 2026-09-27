@@ -106,8 +106,14 @@ npm test           # test
 npm run lint       # ESLint
 ```
 
-La build usa percorsi relativi (`base: './'`): `dist/` può essere pubblicata in una sottocartella
-di qualsiasi hosting statico.
+La build è pensata per GitHub Pages e usa il base path `/METEO-LAB/` (asset, manifest e
+service worker). `npm run dev` resta alla radice. Per un altro percorso: `BASE_PATH=/altro/ npm run build`.
+
+### Pubblicazione su GitHub Pages
+
+Il workflow `.github/workflows/deploy.yml` esegue `npm ci`, `npm test`, `npm run build` e pubblica
+`dist/` con le GitHub Pages Actions ufficiali a ogni push su `main`.
+Nelle impostazioni del repository: **Settings → Pages → Build and deployment → Source: GitHub Actions**.
 
 ## PWA
 
