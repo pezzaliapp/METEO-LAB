@@ -19,7 +19,9 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches
       .open(CACHE_NAME)
-      .then((cache) => cache.addAll(PRECACHE))
+      // cache: 'reload' — la shell va letta dal server, non dalla cache HTTP del browser
+      // (index.html ha max-age=600: senza reload si rischia di salvare la versione precedente).
+      .then((cache) => cache.addAll(PRECACHE.map((path) => new Request(path, { cache: 'reload' }))))
       .then(() => self.skipWaiting()),
   );
 });
@@ -49,8 +51,9 @@ self.addEventListener('fetch', (event) => {
 
   if (request.mode === 'navigate') {
     // Rete prima, poi shell in cache (funzionamento offline dell'interfaccia).
+    // cache: 'no-cache' — index.html viene sempre rivalidato: dopo un deploy arriva subito la nuova versione.
     event.respondWith(
-      fetch(request).catch(() =>
+      fetch(request, { cache: 'no-cache' }).catch(() =>
         caches.match('index.html', MATCH_OPTIONS).then((cached) => cached || Response.error()),
       ),
     );
