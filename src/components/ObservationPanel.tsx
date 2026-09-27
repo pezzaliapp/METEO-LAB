@@ -1,4 +1,7 @@
+import { useState } from 'react';
+import type { AtmosphericProfile } from '../models/AtmosphericProfile';
 import type { AtmosphericState } from '../models/AtmosphericState';
+import { ProfileView } from './ProfileView';
 import {
   describeWeatherCode,
   formatCoordinates,
@@ -16,6 +19,8 @@ interface ObservationPanelProps {
   readonly error: string | null;
   readonly attribution: { readonly text: string; readonly url: string };
   readonly onEnterLab: () => void;
+  /** PROFILO ATMOSFERICO (modellistico) del punto, se disponibile. */
+  readonly profile: AtmosphericProfile | null;
 }
 
 export function observationMetrics(o: AtmosphericState): Metric[] {
@@ -56,7 +61,17 @@ export function observationMetrics(o: AtmosphericState): Metric[] {
 }
 
 export function ObservationPanel(props: ObservationPanelProps) {
-  const { observation, isLive, loading, error, attribution, onEnterLab } = props;
+  const { observation, isLive, loading, error, attribution, onEnterLab, profile } = props;
+  const [showProfile, setShowProfile] = useState(false);
+  const real =
+    observation && observation.temperature !== null && observation.relativeHumidity !== null
+      ? {
+          temperature: observation.temperature,
+          relativeHumidity: observation.relativeHumidity,
+          windSpeed: observation.windSpeed ?? 0,
+          windDirection: observation.windDirection,
+        }
+      : null;
 
   return (
     <section className="panel panel--observation" aria-labelledby="observation-title">
@@ -104,6 +119,20 @@ export function ObservationPanel(props: ObservationPanelProps) {
               {attribution.text}
             </a>
           </p>
+          <div className="controls-row">
+            <button
+              type="button"
+              className="button button--small button--ghost"
+              aria-pressed={showProfile}
+              onClick={() => setShowProfile((value) => !value)}
+            >
+              PROFILO
+            </button>
+            <span className="panel__note">
+              {profile ? 'Profilo atmosferico disponibile (dato modellistico).' : 'Profilo atmosferico non disponibile.'}
+            </span>
+          </div>
+          {showProfile && <ProfileView profile={profile} real={real} />}
           <button type="button" className="button button--primary button--lab" onClick={onEnterLab}>
             ENTRA NEL LAB
           </button>

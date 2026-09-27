@@ -1,4 +1,6 @@
 import type { ConvectiveOutlook } from '../engine/ConvectiveEngine';
+import type { SevereOutlook } from '../engine/SevereWeather';
+import type { AtmosphericProfile } from './AtmosphericProfile';
 import type { AtmosphericState } from './AtmosphericState';
 
 /**
@@ -54,6 +56,8 @@ export interface SimulationState {
   /** Copia congelata dell'osservazione reale usata come condizione iniziale. */
   readonly origin: AtmosphericState;
   readonly originKind: SimulationOrigin;
+  /** Copia del PROFILO ATMOSFERICO (modellistico) del punto; null se non disponibile. */
+  readonly profile: AtmosphericProfile | null;
   readonly parameters: SimulationParameters;
   /** Grandezze mancanti nell'osservazione e sostituite da un valore didattico dichiarato. */
   readonly assumed: readonly AssumedField[];
@@ -64,6 +68,8 @@ export interface SimulationState {
    * Si annulla quando l'utente modifica di nuovo l'atmosfera.
    */
   readonly convection: ConvectiveOutlook | null;
+  /** GRANDINE LAB e DOWNBURST LAB per l'esperimento avviato (null in preparazione). */
+  readonly severe: SevereOutlook | null;
 }
 
 /** Limiti dei controlli utente. */

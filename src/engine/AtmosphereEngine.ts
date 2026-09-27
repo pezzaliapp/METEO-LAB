@@ -8,7 +8,9 @@ import {
   type SimulationState,
 } from '../models/SimulationState';
 import { SIMULATION_STEP_MINUTES, TIMELINE_MINUTES, isTimelineMinute, nextMinute } from '../simulation/timeline';
-import { ConvectiveEngine, type ConvectiveOutlook } from './ConvectiveEngine';
+import type { AtmosphericProfile } from '../models/AtmosphericProfile';
+import type { ConvectiveOutlook } from './ConvectiveEngine';
+import { runExperiment, type SevereOutlook } from './SevereWeather';
 import { clamp, dewPointFrom, relativeHumidityFrom, round, solarFactor } from './physics';
 
 /**
@@ -31,9 +33,9 @@ import { clamp, dewPointFrom, relativeHumidityFrom, round, solarFactor } from '.
  *     Con saturazione e cielo coperto compare una debole precipitazione.
  *  6. Pressione e direzione del vento restano invariate nel modello.
  *
- * TEMPESTA LAB (0.2): con «AVVIA ESPERIMENTO» il motore delega al ConvectiveEngine
- * la valutazione delle condizioni simulate (sviluppo convettivo, ciclo di vita e
- * spostamento della cella), anch'esso didattico e deterministico.
+ * TEMPESTA LAB: con «AVVIA ESPERIMENTO» il motore delega la valutazione delle condizioni
+ * simulate alla catena PROFILO ATMOSFERICO → VerticalProfileEngine → ConvectiveEngine →
+ * HailEngine + DownburstEngine (SevereWeather), didattica e deterministica.
  *
  * Il motore non modifica mai l'AtmosphericState ricevuto: ne conserva una copia
  * congelata e lavora esclusivamente su SimulationState.
@@ -83,11 +85,11 @@ interface CreateOptions {
   readonly originKind?: SimulationOrigin;
   readonly id?: string;
   readonly now?: Date;
+  /** PROFILO ATMOSFERICO del punto (modellistico), se disponibile. */
+  readonly profile?: AtmosphericProfile | null;
 }
 
 export class AtmosphereEngine {
-  private readonly convective = new ConvectiveEngine();
-
   /**
    * Crea un nuovo SimulationState copiando l'AtmosphericState (LIVE → SIM).
    * L'osservazione originale non viene toccata.
@@ -118,11 +120,13 @@ export class AtmosphereEngine {
       createdAt: (options.now ?? new Date()).toISOString(),
       origin,
       originKind: options.originKind ?? 'live',
+      profile: options.profile ? copyProfile(options.profile) : null,
       parameters,
       assumed: Object.freeze(assumed),
       timeline: [],
       currentMinute: 0,
       convection: null,
+      severe: null,
     };
     return freezeState({ ...draft, timeline: this.computeTimeline(origin, parameters, initialCloudCover) });
   }
@@ -137,6 +141,7 @@ export class AtmosphereEngine {
       timeline: this.computeTimeline(simulation.origin, parameters, initialCloudCover),
       currentMinute: 0,
       convection: null,
+      severe: null,
     });
   }
 
@@ -145,23 +150,36 @@ export class AtmosphereEngine {
    * favoriscono la convezione e riporta la timeline a T+0.
    */
   startExperiment(simulation: SimulationState): SimulationState {
-    return freezeState({ ...simulation, currentMinute: 0, convection: this.evaluateConvection(simulation) });
+    const { convection, severe } = this.evaluateExperiment(simulation);
+    return freezeState({ ...simulation, currentMinute: 0, convection, severe });
   }
 
   /** Torna alla preparazione dell'esperimento, mantenendo i parametri scelti. */
   clearExperiment(simulation: SimulationState): SimulationState {
-    return freezeState({ ...simulation, currentMinute: 0, convection: null });
+    return freezeState({ ...simulation, currentMinute: 0, convection: null, severe: null });
   }
 
   evaluateConvection(simulation: SimulationState): ConvectiveOutlook {
+    return this.evaluateExperiment(simulation).convection;
+  }
+
+  evaluateExperiment(simulation: SimulationState): { convection: ConvectiveOutlook; severe: SevereOutlook } {
     const { origin, parameters } = simulation;
-    return this.convective.evaluate({
-      temperature: parameters.temperature,
-      relativeHumidity: parameters.relativeHumidity,
-      windSpeed: parameters.windSpeed,
-      windDirection: origin.windDirection,
-      // Senza temperatura reale l'ambiente coincide con il valore didattico iniziale.
-      environmentTemperature: origin.temperature ?? DIDACTIC_DEFAULTS.temperature,
+    return runExperiment({
+      // Senza dato reale l'ambiente usa il valore didattico dichiarato.
+      real: {
+        temperature: origin.temperature ?? DIDACTIC_DEFAULTS.temperature,
+        relativeHumidity: origin.relativeHumidity ?? DIDACTIC_DEFAULTS.relativeHumidity,
+        windSpeed: origin.windSpeed ?? DIDACTIC_DEFAULTS.windSpeed,
+        windDirection: origin.windDirection,
+      },
+      sim: {
+        temperature: parameters.temperature,
+        relativeHumidity: parameters.relativeHumidity,
+        windSpeed: parameters.windSpeed,
+        windDirection: origin.windDirection,
+      },
+      profile: simulation.profile,
       surfacePressure: origin.surfacePressure,
       latitude: origin.latitude,
       longitude: origin.longitude,
@@ -172,6 +190,7 @@ export class AtmosphereEngine {
   reset(simulation: SimulationState): SimulationState {
     const fresh = this.createSimulation(simulation.origin, {
       originKind: simulation.originKind,
+      profile: simulation.profile,
       id: simulation.id,
       now: new Date(simulation.createdAt),
     });
@@ -322,6 +341,14 @@ function roundFrame(frame: SimulationFrame): SimulationFrame {
 
 function copyObservation(observation: AtmosphericState): AtmosphericState {
   return Object.freeze({ ...observation, source: Object.freeze({ ...observation.source }) });
+}
+
+function copyProfile(profile: AtmosphericProfile): AtmosphericProfile {
+  return Object.freeze({
+    ...profile,
+    levels: Object.freeze(profile.levels.map((level) => Object.freeze({ ...level }))),
+    source: Object.freeze({ ...profile.source }),
+  });
 }
 
 function freezeState(state: SimulationState): SimulationState {

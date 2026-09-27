@@ -10,6 +10,8 @@ import {
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { offsetPoint, type ConvectiveOutlook } from '../engine/ConvectiveEngine';
+import { hailAt, hailGeometry, outflowAt, outflowGeometry } from '../engine/SevereGeometry';
+import type { SevereOutlook } from '../engine/SevereWeather';
 import { RADAR_BANDS, radarAt, type RadarFeatureCollection } from '../engine/SimulatedRadar';
 import { STAGE_LABELS } from '../simulation/tempestaNarrative';
 import { formatOffset } from '../simulation/timeline';
@@ -32,6 +34,11 @@ const TWEEN_MS = 1100;
 
 const RADAR_SOURCE = 'sim-radar';
 const TRACK_SOURCE = 'sim-track';
+const HAIL_SOURCE = 'sim-hail';
+const OUTFLOW_SOURCE = 'sim-outflow';
+/** Colori dei fenomeni: distinti dalla scala radar e dal verde/acqua LIVE. */
+export const HAIL_COLOR = '#ece8ff';
+export const OUTFLOW_COLOR = '#5ab4ff';
 const EMPTY: RadarFeatureCollection = { type: 'FeatureCollection', features: [] };
 
 function isWebGLAvailable(): boolean {
@@ -70,6 +77,8 @@ interface MapViewProps {
   readonly experiment: ConvectiveOutlook | null;
   /** Minuto corrente della timeline dell'esperimento. */
   readonly minute: number;
+  /** GRANDINE e DOWNBURST dell'esperimento (null = assenti o non valutati). */
+  readonly severe: SevereOutlook | null;
 }
 
 function trackData(outlook: ConvectiveOutlook) {
@@ -92,12 +101,19 @@ function trackData(outlook: ConvectiveOutlook) {
   };
 }
 
-function experimentBounds(outlook: ConvectiveOutlook): LngLatBounds {
+function experimentBounds(outlook: ConvectiveOutlook, severe: SevereOutlook | null): LngLatBounds {
   const margin = Math.max(outlook.cellRadius * 1.6, 12);
   const bounds = new LngLatBounds();
   for (const frame of outlook.frames) {
     for (const bearing of [0, 90, 180, 270]) {
       const p = offsetPoint(frame.center, bearing, margin);
+      bounds.extend([p.longitude, p.latitude]);
+    }
+  }
+  const impact = severe?.downburst.impactPoint;
+  if (impact) {
+    for (const bearing of [0, 90, 180, 270]) {
+      const p = offsetPoint(impact, bearing, severe.downburst.outflowRadius * 1.3 + 2);
       bounds.extend([p.longitude, p.latitude]);
     }
   }
@@ -129,6 +145,67 @@ function addSimulationLayers(map: MapLibreMap): void {
     filter: ['==', ['get', 'band'], 'light'],
     paint: { 'line-color': '#1d6b31', 'line-width': 1, 'line-opacity': 0.9 },
   });
+  // GRANDINE SIMULATA: sopra il radar, sobria (contorno tratteggiato + chicchi), non lo copre.
+  map.addSource(HAIL_SOURCE, { type: 'geojson', data: EMPTY });
+  map.addSource(OUTFLOW_SOURCE, { type: 'geojson', data: EMPTY });
+  map.addLayer({
+    id: 'sim-outflow-area',
+    type: 'fill',
+    source: OUTFLOW_SOURCE,
+    filter: ['==', ['get', 'kind'], 'area'],
+    paint: { 'fill-color': OUTFLOW_COLOR, 'fill-opacity': ['*', 0.1, ['get', 'strength']] },
+  });
+  map.addLayer({
+    id: 'sim-hail-core',
+    type: 'fill',
+    source: HAIL_SOURCE,
+    filter: ['==', ['get', 'kind'], 'core'],
+    paint: { 'fill-color': HAIL_COLOR, 'fill-opacity': 0.22 },
+  });
+  map.addLayer({
+    id: 'sim-hail-edge',
+    type: 'line',
+    source: HAIL_SOURCE,
+    filter: ['==', ['get', 'kind'], 'core'],
+    paint: { 'line-color': HAIL_COLOR, 'line-width': 1.6, 'line-dasharray': [2, 1.5] },
+  });
+  map.addLayer({
+    id: 'sim-hail-stones',
+    type: 'circle',
+    source: HAIL_SOURCE,
+    filter: ['==', ['get', 'kind'], 'stone'],
+    paint: { 'circle-radius': 2.2, 'circle-color': HAIL_COLOR, 'circle-stroke-color': '#3a3355', 'circle-stroke-width': 0.8 },
+  });
+  // DOWNBURST OUTFLOW: fronte di raffica blu, distinto dal radar.
+  map.addLayer({
+    id: 'sim-outflow-front',
+    type: 'line',
+    source: OUTFLOW_SOURCE,
+    filter: ['==', ['get', 'kind'], 'front'],
+    paint: { 'line-color': OUTFLOW_COLOR, 'line-width': 3, 'line-opacity': ['get', 'strength'] },
+  });
+  map.addLayer({
+    id: 'sim-outflow-arrows',
+    type: 'line',
+    source: OUTFLOW_SOURCE,
+    filter: ['==', ['get', 'kind'], 'arrow'],
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-color': OUTFLOW_COLOR, 'line-width': 2, 'line-opacity': ['get', 'strength'] },
+  });
+  map.addLayer({
+    id: 'sim-outflow-impact',
+    type: 'circle',
+    source: OUTFLOW_SOURCE,
+    filter: ['==', ['get', 'kind'], 'impact'],
+    paint: {
+      'circle-radius': 5,
+      'circle-color': '#0e1418',
+      'circle-stroke-color': OUTFLOW_COLOR,
+      'circle-stroke-width': 2.5,
+      'circle-opacity': ['get', 'strength'],
+      'circle-stroke-opacity': ['get', 'strength'],
+    },
+  });
   map.addLayer({
     id: 'sim-track-points',
     type: 'circle',
@@ -157,9 +234,29 @@ function addSimulationLayers(map: MapLibreMap): void {
     },
     paint: { 'text-color': '#e8b04b', 'text-halo-color': '#0e1418', 'text-halo-width': 1.2 },
   });
+  for (const [id, source, color] of [
+    ['sim-hail-label', HAIL_SOURCE, HAIL_COLOR],
+    ['sim-outflow-label', OUTFLOW_SOURCE, OUTFLOW_COLOR],
+  ] as const) {
+    map.addLayer({
+      id,
+      type: 'symbol',
+      source,
+      filter: ['==', ['get', 'kind'], 'label'],
+      layout: {
+        'text-field': ['get', 'label'],
+        'text-font': ['Noto Sans Regular'],
+        'text-size': 11,
+        'text-anchor': 'left',
+        'text-offset': [0.4, 0],
+        'text-allow-overlap': true,
+      },
+      paint: { 'text-color': color, 'text-halo-color': '#0e1418', 'text-halo-width': 1.6 },
+    });
+  }
 }
 
-export default function MapView({ selected, onSelect, mode, prompt, experiment, minute }: MapViewProps) {
+export default function MapView({ selected, onSelect, mode, prompt, experiment, minute, severe }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const markerRef = useRef<Marker | null>(null);
@@ -228,13 +325,14 @@ export default function MapView({ selected, onSelect, mode, prompt, experiment, 
     if (!map || !ready) return;
     const radarSource = map.getSource<GeoJSONSource>(RADAR_SOURCE);
     const trackSource = map.getSource<GeoJSONSource>(TRACK_SOURCE);
-    if (!radarSource || !trackSource) return;
+    const hailSource = map.getSource<GeoJSONSource>(HAIL_SOURCE);
+    const outflowSource = map.getSource<GeoJSONSource>(OUTFLOW_SOURCE);
+    if (!radarSource || !trackSource || !hailSource || !outflowSource) return;
 
     if (!experiment) {
       shownExperimentRef.current = null;
       displayedRef.current = 0;
-      radarSource.setData(EMPTY);
-      trackSource.setData(EMPTY);
+      for (const source of [radarSource, trackSource, hailSource, outflowSource]) source.setData(EMPTY);
       return;
     }
 
@@ -242,13 +340,17 @@ export default function MapView({ selected, onSelect, mode, prompt, experiment, 
       shownExperimentRef.current = experiment;
       displayedRef.current = 0;
       trackSource.setData(trackData(experiment));
-      map.fitBounds(experimentBounds(experiment), { padding: 48, maxZoom: 9.5, duration: prefersReducedMotion() ? 0 : 900 });
+      map.fitBounds(experimentBounds(experiment, severe), { padding: 48, maxZoom: 9.5, duration: prefersReducedMotion() ? 0 : 900 });
     }
 
     const from = displayedRef.current;
     const draw = (t: number) => {
       displayedRef.current = t;
       radarSource.setData(radarAt(experiment, t).geometry);
+      hailSource.setData(severe?.hail.occurs ? hailGeometry(hailAt(severe.hail, t)) : EMPTY);
+      outflowSource.setData(
+        severe?.downburst.occurs ? outflowGeometry(outflowAt(severe.downburst, t), experiment.cellDirection) : EMPTY,
+      );
     };
     if (minute <= from || prefersReducedMotion()) {
       draw(minute);
@@ -264,7 +366,7 @@ export default function MapView({ selected, onSelect, mode, prompt, experiment, 
     };
     frameId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frameId);
-  }, [experiment, minute, ready]);
+  }, [experiment, severe, minute, ready]);
 
   const selectCenter = () => {
     const map = mapRef.current;
@@ -274,6 +376,12 @@ export default function MapView({ selected, onSelect, mode, prompt, experiment, 
   };
 
   const stage = experiment?.frames.find((frame) => frame.minute === minute)?.stage ?? 'NONE';
+  // Legenda: solo i fenomeni presenti sulla mappa in questo istante.
+  const hailVisible = Boolean(severe?.hail.occurs && (severe.hail.frames.find((f) => f.minute === minute)?.coreRadius ?? 0) > 0);
+  const outflowVisible = Boolean(
+    severe?.downburst.occurs && (severe.downburst.frames.find((f) => f.minute === minute)?.outflowRadius ?? 0) > 0,
+  );
+  const radarVisible = (experiment?.frames.find((f) => f.minute === minute)?.reflectivity ?? 0) >= (RADAR_BANDS[0]?.dbz ?? 20);
 
   return (
     <div className={`map-frame map-frame--${mode}`}>
@@ -320,18 +428,34 @@ export default function MapView({ selected, onSelect, mode, prompt, experiment, 
         </p>
       )}
 
-      {experiment?.develops && (
-        <div className="radar-legend" aria-label="Legenda del radar simulato, da debole a intenso">
-          <span className="radar-legend__title">SIM RADAR</span>
-          <span className="radar-legend__scale" aria-hidden="true">
-            {RADAR_BANDS.map((band) => (
-              <span key={band.key} style={{ background: band.color }} title={`${band.label} (≥ ${band.dbz} dBZ)`} />
-            ))}
-          </span>
-          <span className="radar-legend__labels">
-            <span>debole</span>
-            <span>intenso</span>
-          </span>
+      {experiment?.develops && (radarVisible || hailVisible || outflowVisible) && (
+        <div className="radar-legend" aria-label="Legenda dei fenomeni simulati presenti sulla mappa">
+          {radarVisible && (
+            <>
+              <span className="radar-legend__title">SIM RADAR</span>
+              <span className="radar-legend__scale" aria-hidden="true">
+                {RADAR_BANDS.map((band) => (
+                  <span key={band.key} style={{ background: band.color }} title={`${band.label} (≥ ${band.dbz} dBZ)`} />
+                ))}
+              </span>
+              <span className="radar-legend__labels">
+                <span>debole</span>
+                <span>intenso</span>
+              </span>
+            </>
+          )}
+          {hailVisible && (
+            <span className="radar-legend__item">
+              <span className="radar-legend__hail" aria-hidden="true" />
+              HAIL SIM · grandine simulata
+            </span>
+          )}
+          {outflowVisible && (
+            <span className="radar-legend__item">
+              <span className="radar-legend__outflow" aria-hidden="true" />
+              DOWNBURST OUTFLOW · fronte di raffica
+            </span>
+          )}
         </div>
       )}
     </div>

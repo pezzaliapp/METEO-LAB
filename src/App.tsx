@@ -9,6 +9,7 @@ import { formatCoordinates, formatDateTime } from './components/format';
 import { useOnlineStatus } from './components/useOnlineStatus';
 import { AtmosphereEngine } from './engine/AtmosphereEngine';
 import type { MapPoint, MapPrompt } from './map/MapView';
+import type { AtmosphericProfile } from './models/AtmosphericProfile';
 import type { AtmosphericState } from './models/AtmosphericState';
 import type { SimulationParameters, SimulationState } from './models/SimulationState';
 import { defaultProvider } from './providers';
@@ -17,7 +18,9 @@ import {
   deleteScenario,
   listScenarios,
   loadLastObservation,
+  loadLastProfile,
   saveLastObservation,
+  saveLastProfile,
   saveScenario,
   type SavedScenario,
 } from './storage/localStore';
@@ -52,6 +55,8 @@ export function App() {
 
   const [point, setPoint] = useState<MapPoint | null>(null);
   const [observation, setObservation] = useState<ObservationEntry | null>(null);
+  /** PROFILO ATMOSFERICO (modellistico) del punto dell'osservazione corrente. */
+  const [profile, setProfile] = useState<AtmosphericProfile | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [simulation, setSimulation] = useState<SimulationState | null>(null);
@@ -59,12 +64,16 @@ export function App() {
   const [scenarios, setScenarios] = useState<SavedScenario[]>([]);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const requestRef = useRef<AbortController | null>(null);
+  const pointRequestedRef = useRef(false);
 
   // Ultima osservazione e scenari salvati localmente.
   useEffect(() => {
-    loadLastObservation()
-      .then((stored) => {
-        if (stored) setObservation((current) => current ?? { state: stored, kind: 'stored' });
+    Promise.all([loadLastObservation(), loadLastProfile().catch(() => null)])
+      .then(([stored, storedProfile]) => {
+        // Se nel frattempo l'utente ha già scelto un punto, il dato memorizzato non serve più.
+        if (!stored || pointRequestedRef.current) return;
+        setObservation({ state: stored, kind: 'stored' });
+        setProfile(storedProfile);
       })
       .catch(() => undefined);
     listScenarios()
@@ -82,23 +91,35 @@ export function App() {
 
   const requestObservation = useCallback(
     async (target: MapPoint) => {
+      pointRequestedRef.current = true;
       requestRef.current?.abort();
       const controller = new AbortController();
       requestRef.current = controller;
       setPoint(target);
       setLoading(true);
       setError(null);
+      // Il profilo è richiesto in parallelo; se non arriva l'osservazione resta valida.
+      const profileRequest = provider.getProfile
+        ? provider.getProfile(target.latitude, target.longitude, { signal: controller.signal }).catch(() => null)
+        : Promise.resolve(null);
       try {
-        const state = await provider.getCurrentState(target.latitude, target.longitude, { signal: controller.signal });
+        const [state, pointProfile] = await Promise.all([
+          provider.getCurrentState(target.latitude, target.longitude, { signal: controller.signal }),
+          profileRequest,
+        ]);
         if (controller.signal.aborted) return;
         setObservation({ state, kind: 'live' });
+        setProfile(pointProfile);
         saveLastObservation(state).catch(() => undefined);
+        saveLastProfile(pointProfile).catch(() => undefined);
       } catch (caught) {
         if (controller.signal.aborted) return;
         setError(describeProviderError(caught));
         // Nessun dato per il nuovo punto: si mostra l'ultima osservazione memorizzata, dichiarandola tale.
         const stored = await loadLastObservation().catch(() => null);
+        const storedProfile = stored ? await loadLastProfile().catch(() => null) : null;
         setObservation(stored ? { state: stored, kind: 'stored' } : null);
+        setProfile(storedProfile);
       } finally {
         if (requestRef.current === controller) {
           requestRef.current = null;
@@ -133,7 +154,7 @@ export function App() {
 
   const enterLab = () => {
     if (!observation) return;
-    setSimulation(engine.createSimulation(observation.state, { originKind: isLive ? 'live' : 'last-observation' }));
+    setSimulation(engine.createSimulation(observation.state, { originKind: isLive ? 'live' : 'last-observation', profile }));
     setPlaying(false);
     setSaveMessage(null);
   };
@@ -161,7 +182,7 @@ export function App() {
   };
 
   const openScenario = (scenario: SavedScenario) => {
-    const base = engine.createSimulation(scenario.origin, { originKind: 'scenario' });
+    const base = engine.createSimulation(scenario.origin, { originKind: 'scenario', profile: scenario.profile ?? null });
     setSimulation(engine.withParameters(base, scenario.parameters));
     setPlaying(false);
     setSaveMessage(null);
@@ -194,6 +215,7 @@ export function App() {
       savedAt,
       origin: simulation.origin,
       parameters: simulation.parameters,
+      profile: simulation.profile,
     };
     saveScenario(scenario)
       .then(listScenarios)
@@ -239,6 +261,7 @@ export function App() {
               mode={simulation ? 'sim' : 'live'}
               prompt={mapPrompt}
               experiment={simulation?.convection ?? null}
+              severe={simulation?.severe ?? null}
               minute={simulation?.currentMinute ?? 0}
             />
           </Suspense>
@@ -279,6 +302,7 @@ export function App() {
               error={error}
               attribution={provider.attribution}
               onEnterLab={enterLab}
+              profile={profile}
             />
           )}
           <ScenarioList scenarios={scenarios} onOpen={openScenario} onDelete={removeScenario} />

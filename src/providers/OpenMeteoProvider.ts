@@ -4,6 +4,7 @@ import {
   type AtmosphericField,
   type AtmosphericState,
 } from '../models/AtmosphericState';
+import { PROFILE_LEVELS, createAtmosphericProfile, type AtmosphericProfile, type PressureLevelInput } from '../models/AtmosphericProfile';
 import { WeatherProviderError, type RequestOptions, type WeatherProvider } from './WeatherProvider';
 
 /**
@@ -33,6 +34,31 @@ const VARIABLES: ReadonlyArray<readonly [string, AtmosphericField, string]> = [
   ['wind_gusts_10m', 'windGust', 'km/h'],
   ['weather_code', 'weatherCode', 'wmo code'],
 ];
+
+/**
+ * PROFILO ATMOSFERICO — variabili sui livelli di pressione (documentazione "Pressure Level Variables"):
+ * <variabile>_<livello>hPa. Sono dati dei modelli numerici combinati da Open-Meteo, NON radiosondaggi.
+ */
+const LEVEL_VARIABLES: ReadonlyArray<readonly [string, keyof Omit<PressureLevelInput, 'pressure'>, string]> = [
+  ['temperature', 'temperature', '°C'],
+  ['relative_humidity', 'relativeHumidity', '%'],
+  ['dew_point', 'dewPoint', '°C'],
+  ['wind_speed', 'windSpeed', 'km/h'],
+  ['wind_direction', 'windDirection', '°'],
+  ['geopotential_height', 'height', 'm'],
+];
+
+/** Indici convettivi calcolati dal modello del provider (variabili orarie, disponibili anche come "current"). */
+const PROFILE_SCALARS: ReadonlyArray<readonly [string, 'cape' | 'cin' | 'liftedIndex' | 'freezingLevelHeight' | 'surfacePressure', string]> = [
+  ['cape', 'cape', 'J/kg'],
+  ['convective_inhibition', 'cin', 'J/kg'],
+  ['lifted_index', 'liftedIndex', ''],
+  ['freezing_level_height', 'freezingLevelHeight', 'm'],
+  ['surface_pressure', 'surfacePressure', 'hPa'],
+];
+
+/** Open-Meteo non indica nella risposta quale modello ha fornito i dati: parametro "models" predefinito. */
+export const OPEN_METEO_PROFILE_MODEL = 'modelli numerici combinati da Open-Meteo (selezione automatica «best match»)';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 
@@ -77,13 +103,82 @@ export class OpenMeteoProvider implements WeatherProvider {
   }
 
   async getCurrentState(latitude: number, longitude: number, options: RequestOptions = {}): Promise<AtmosphericState> {
+    this.checkRequest(latitude, longitude);
+    const body = await this.request(this.buildUrl(latitude, longitude), options);
+    return this.parse(body, latitude, longitude);
+  }
+
+  buildProfileUrl(latitude: number, longitude: number): string {
+    const levelNames = PROFILE_LEVELS.flatMap((level) => LEVEL_VARIABLES.map(([name]) => `${name}_${level}hPa`));
+    const params = new URLSearchParams({
+      latitude: latitude.toFixed(4),
+      longitude: longitude.toFixed(4),
+      current: [...levelNames, ...PROFILE_SCALARS.map(([name]) => name)].join(','),
+      temperature_unit: 'celsius',
+      wind_speed_unit: 'kmh',
+      timeformat: 'unixtime',
+      timezone: 'GMT',
+    });
+    return `${this.endpoint}?${params.toString()}`;
+  }
+
+  /** PROFILO ATMOSFERICO (modellistico) nel punto: livelli 1000…300 hPa e indici convettivi del modello. */
+  async getProfile(latitude: number, longitude: number, options: RequestOptions = {}): Promise<AtmosphericProfile> {
+    this.checkRequest(latitude, longitude);
+    const body = await this.request(this.buildProfileUrl(latitude, longitude), options);
+    return this.parseProfile(body, latitude, longitude);
+  }
+
+  parseProfile(body: unknown, requestedLatitude: number, requestedLongitude: number): AtmosphericProfile {
+    if (!isRecord(body) || !isRecord(body.current)) {
+      throw new WeatherProviderError('invalid-response', 'Blocco "current" assente.');
+    }
+    const current = body.current;
+    const units = isRecord(body.current_units) ? body.current_units : {};
+    const timestamp = parseTime(current.time);
+    if (timestamp === null) {
+      throw new WeatherProviderError('invalid-response', 'Istante di validità assente o non valido.');
+    }
+    const read = (name: string, expectedUnit: string): unknown => {
+      const unit = units[name];
+      return unit === undefined || unit === expectedUnit ? current[name] : null;
+    };
+
+    const levels = PROFILE_LEVELS.map((pressure) => {
+      const level: PressureLevelInput = { pressure };
+      for (const [name, field, unit] of LEVEL_VARIABLES) level[field] = read(`${name}_${pressure}hPa`, unit);
+      return level;
+    });
+    const scalars: Record<string, unknown> = {};
+    for (const [name, field, unit] of PROFILE_SCALARS) scalars[field] = read(name, unit);
+
+    return createAtmosphericProfile({
+      timestamp,
+      latitude: requestedLatitude,
+      longitude: requestedLongitude,
+      elevation: body.elevation,
+      ...scalars,
+      levels,
+      source: {
+        providerId: this.id,
+        providerName: this.name,
+        model: OPEN_METEO_PROFILE_MODEL,
+        fetchedAt: this.now().toISOString(),
+      },
+    });
+  }
+
+  private checkRequest(latitude: number, longitude: number): void {
     if (!isValidCoordinate(latitude, longitude)) {
       throw new WeatherProviderError('invalid-request', 'Coordinate fuori intervallo.');
     }
     if (!this.isOnline()) {
       throw new WeatherProviderError('offline', 'Dispositivo offline.');
     }
+  }
 
+  /** Richiesta HTTP con timeout, annullamento e gestione uniforme degli errori. */
+  private async request(url: string, options: RequestOptions): Promise<unknown> {
     const controller = new AbortController();
     let timedOut = false;
     const timer = setTimeout(() => {
@@ -96,7 +191,7 @@ export class OpenMeteoProvider implements WeatherProvider {
 
     let response: Response;
     try {
-      response = await this.fetchFn(this.buildUrl(latitude, longitude), {
+      response = await this.fetchFn(url, {
         signal: controller.signal,
         headers: { Accept: 'application/json' },
         credentials: 'omit',
@@ -126,8 +221,7 @@ export class OpenMeteoProvider implements WeatherProvider {
       const reason = isRecord(body) && typeof body.reason === 'string' ? body.reason : 'Errore del provider';
       throw new WeatherProviderError('http', reason, response.status);
     }
-
-    return this.parse(body, latitude, longitude);
+    return body;
   }
 
   /** Converte la risposta JSON di Open-Meteo in AtmosphericState. */

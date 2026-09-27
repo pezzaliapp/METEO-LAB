@@ -125,7 +125,9 @@ export function summarize(outlook: ConvectiveOutlook, parameters: SimulationPara
     causes.push(
       outlook.cellSpeed < 1
         ? 'Senza vento la cella resta quasi ferma.'
-        : `Il vento di ${number(parameters.windSpeed, 0)} km/h la trasporta verso ${compassTo(outlook.cellDirection)}${organizationNote(outlook)}.`,
+        : outlook.diagnostics.environmentSource === 'profile'
+          ? `Il vento medio fra il suolo e 6 km (${number(outlook.cellSpeed, 0)} km/h, dal profilo atmosferico) la trasporta verso ${compassTo(outlook.cellDirection)}${organizationNote(outlook)}.`
+          : `Il vento di ${number(parameters.windSpeed, 0)} km/h la trasporta verso ${compassTo(outlook.cellDirection)}${organizationNote(outlook)}.`,
     );
   } else if (outlook.limitingFactor) {
     causes.push(LIMITING_EXPLANATIONS[outlook.limitingFactor]);

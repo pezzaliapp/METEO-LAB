@@ -6,7 +6,7 @@ METEO LAB è una Progressive Web App educativa e sperimentale dedicata alla mete
 Non è un'app meteo tradizionale e non fornisce previsioni: usa dati meteorologici reali come
 punto di partenza per osservare, interpretare e sperimentare con un simulatore didattico.
 
-Versione: **0.2.0** · Autore: **Alessandro Pezzali** · Licenza: **MIT**
+Versione: **0.3.0** · Autore: **Alessandro Pezzali** · Licenza: **MIT**
 
 ---
 
@@ -35,12 +35,82 @@ permanente «SIMULAZIONE DIDATTICA — NON È UNA PREVISIONE METEOROLOGICA».
 ## Utilizzo
 
 1. **SCEGLI UN PUNTO SULLA MAPPA** (clic, oppure frecce/zoom da tastiera e «Seleziona centro mappa»).
-2. METEO LAB richiede lo stato atmosferico reale: **OSSERVAZIONE ACQUISITA**.
+2. METEO LAB richiede lo stato atmosferico al suolo e il **PROFILO ATMOSFERICO**: **OSSERVAZIONE ACQUISITA**.
+   Il comando **PROFILO** mostra la sezione verticale (quota, temperatura, punto di rugiada, vento).
 3. Premi **ENTRA NEL LAB**: l'osservazione viene copiata in un `SimulationState` separato (TEMPESTA LAB).
-4. Modifica temperatura, umidità e vento: per ogni grandezza sono mostrati valore REALE, SIM e Δ.
+4. Scegli la missione (01 TEMPESTA, 02 GRANDINE, 03 DOWNBURST) e modifica temperatura, umidità e vento
+   al suolo: per ogni grandezza sono mostrati valore REALE, SIM e Δ. Il profilo in quota resta quello reale.
 5. Premi **AVVIA ESPERIMENTO** e osserva la mappa: **PLAY**, **PAUSA**, **STEP**, **RESET** e i tempi
    T+0 … T+90 cliccabili.
 6. **SALVA SCENARIO** conserva lo scenario sul dispositivo; **TORNA AL LIVE** ripristina l'osservazione reale.
+
+## Dati reali, dati modellistici, simulazione (0.3)
+
+| Livello | Che cos'è | Da dove arriva |
+|---|---|---|
+| **Osservazione al suolo** (`AtmosphericState`) | Stato attuale a 2 m / 10 m | Open-Meteo, blocco `current` |
+| **PROFILO ATMOSFERICO** (`AtmosphericProfile`) | Livelli 1000, 925, 850, 700, 500, 300 hPa: quota geopotenziale, temperatura, umidità, punto di rugiada, vento; CAPE, CIN, Lifted Index e zero termico del modello | Open-Meteo, variabili sui livelli di pressione. **Dato modellistico** (modelli numerici combinati automaticamente, «best match»): **non è un radiosondaggio** |
+| **Simulazione** (`SimulationState`) | Esperimento didattico: suolo modificato dall'utente + profilo reale | Calcolata nel browser da METEO LAB. **Non è una previsione** |
+
+I livelli che si trovano sotto il terreno del punto (il provider li estrapola) sono marcati e non vengono usati.
+Ogni dato mancante resta `null`. Senza profilo TEMPESTA LAB continua a funzionare con il profilo standard
+ipotizzato, mentre GRANDINE LAB e DOWNBURST LAB mostrano **DATI VERTICALI INSUFFICIENTI**.
+
+## GRANDINE LAB e DOWNBURST LAB (0.3)
+
+Esiti possibili dell'esperimento: **TEMPORALE SENZA FENOMENI SEVERI**, **GRANDINE**, **DOWNBURST**,
+**GRANDINE + DOWNBURST**. I fenomeni nascono solo con una cella matura, non iniziano mai a T+0 e terminano
+con la cella. Al termine l'esperimento spiega **PERCHÉ È SUCCESSO** o **PERCHÉ NON È SUCCESSO** a partire dai
+valori calcolati. Gli indici (`hailPotential`, `downburstPotential`, `stormProbability`) sono mostrati come
+**indice didattico** 0…1, mai come probabilità: non sono calibrati.
+
+### VerticalProfileEngine (`src/engine/VerticalProfileEngine.ts`)
+
+Quote sopra il suolo (altezza geopotenziale − elevazione), interpolazione lineare fra i livelli (vento per
+componenti u/v). Calcola: zero termico (dal profilo; zero termico del provider solo come ripiego),
+zero del bulbo umido approssimato (temperatura di bulbo umido di Stull 2011), gradiente 0–3 km (con il suolo
+SIM), gradiente 700–500 hPa, shear 0–6 km, secchezza a 700–500 hPa e sotto la base delle nubi (scarto T − Td),
+base delle nubi (Espy), isoterme −10/−30 °C e vento medio 0–6 km. Il profilo diventa l'ambiente in cui sale la
+particella del ConvectiveEngine (sostituisce il profilo ICAO fisso), e fornisce shear e vento di trasporto.
+
+### HailEngine (`src/engine/HailEngine.ts`)
+
+`hailPotential = updraft × zona di crescita × fusione × (0,5 + 0,5·gradiente 700–500) × (0,6 + 0,4·shear)`
+
+- updraft capace di sostenere i chicchi (v ≈ 12·√D m/s, ordini di grandezza NOAA/NSSL);
+- quota della nube nella zona di crescita −10…−30 °C;
+- fusione: zero del bulbo umido oltre ~3,4 km sfavorevole;
+- aria fredda in quota (gradiente 700–500 hPa) e shear 0–6 km (organizzazione della cella).
+
+Ciclo: `EMBRYO → GROWING → MATURE → FALLING → ENDED`. Classi didattiche `SMALL / MEDIUM / LARGE` (soglie
+2,5 e 5 cm del diametro sostenibile, mai mostrato come misura). Sulla mappa: nucleo **GRANDINE SIMULATA**
+(contorno tratteggiato chiaro e chicchi, sopra il radar senza coprirlo); nella **sezione verticale**: embrioni sopra
+lo zero termico, crescita nella zona −10…−30 °C, caduta al suolo.
+
+### DownburstEngine (`src/engine/DownburstEngine.ts`)
+
+`downburstPotential = loading × DCAPE × (0,5 + 0,5·evaporazione) × (0,6 + 0,4·gradiente 0–3 km)`
+
+- **DCAPE didattica**: aria del livello a θe minima portata alla temperatura di bulbo umido e fatta scendere
+  satura fino al suolo sul profilo;
+- **precipitation loading**: riflettività di picco della cella;
+- **evaporazione**: aria secca sotto la base delle nubi (downburst «secchi», base alta) o a 700–500 hPa
+  (downburst «umidi»), Wakimoto 1985;
+- **gradiente 0–3 km** vicino all'adiabatica secca; serve una cella matura.
+
+Ciclo: `DEVELOPING → DESCENDING → IMPACT → OUTFLOW → DISSIPATING`, impatto al collasso del nucleo nella
+fase matura. Classi `WEAK / MODERATE / STRONG` (17 e 25,7 m/s), mai come velocità previste. Sulla mappa:
+**DOWNBURST SIMULATO**, fronte di raffica blu che si espande dal punto d'impatto (più esteso nel verso del moto)
+e poi si attenua; nella sezione verticale: discesa, impatto e espansione al suolo.
+
+### Limiti scientifici (0.3)
+
+- Il profilo è modellistico, all'istante corrente e su 6 livelli: strati sottili (inversioni, EML sottili) sfuggono.
+- La particella è sollevata dal suolo senza trascinamento né temperatura virtuale: la CAPE didattica resta
+  più alta della CAPE del modello (mostrata nel PROFILO per confronto).
+- Nessuna microfisica: grandine e downburst sono indici fisicamente motivati, non simulazioni della nube.
+- Stull 2011 è valida al livello del mare: in quota lo zero del bulbo umido è approssimato.
+- Nessun effetto di orografia, fronti, interazione fra celle o modifica dell'ambiente da parte della cella.
 
 ## TEMPESTA LAB (0.2)
 
@@ -117,11 +187,12 @@ La posizione dell'utente non viene mai richiesta.
 
 ```
 src/
-  models/       AtmosphericState (osservazione reale, immutabile) e SimulationState
+  models/       AtmosphericState (osservazione), AtmosphericProfile (profilo modellistico), SimulationState
   providers/    WeatherProvider astratto + OpenMeteoProvider
-  engine/       AtmosphereEngine, ConvectiveEngine, SimulatedRadar (modelli didattici), fisica elementare
-  simulation/   timeline T+0 … T+90 (passo 15 minuti) e testi di TEMPESTA LAB
-  storage/      IndexedDB: ultima osservazione e scenari salvati
+  engine/       AtmosphereEngine, VerticalProfileEngine, ConvectiveEngine, HailEngine, DownburstEngine,
+                SevereWeather (catena completa), SimulatedRadar e SevereGeometry (mappa), fisica elementare
+  simulation/   timeline T+0 … T+90 (passo 15 minuti) e testi di TEMPESTA / GRANDINE / DOWNBURST LAB
+  storage/      IndexedDB: ultima osservazione, ultimo profilo e scenari salvati
   map/          mappa MapLibre GL (caricata in modo differito)
   components/   interfaccia React
   pwa/          service worker e registrazione
@@ -191,22 +262,29 @@ Nelle impostazioni del repository: **Settings → Pages → Build and deployment
 - Il service worker (solo nella build di produzione) mette in cache **solo l'application shell**
   (HTML, JS, CSS, icone della stessa origine).
 - Le richieste meteorologiche e le tile della mappa **non** vengono messe in cache dal service worker.
-- Offline restano disponibili interfaccia, simulazioni e scenari salvati; l'ultima osservazione
-  è mostrata come «ULTIMA OSSERVAZIONE» con il suo timestamp. La mappa richiede la connessione.
+- Offline restano disponibili interfaccia, simulazioni e scenari salvati; l'ultima osservazione (con il suo
+  profilo) è mostrata come «ULTIMA OSSERVAZIONE» con il suo timestamp. La mappa richiede la connessione.
+- Aggiornamenti: il service worker è registrato con un URL diverso a ogni build (`sw.js?v=<bundle>`,
+  `updateViaCache: 'none'`), la pagina viene sempre rivalidata e la shell è precaricata ignorando la cache
+  HTTP: una nuova versione pubblicata sostituisce subito la precedente, anche con copie vecchie in una CDN.
 
 ## Privacy
 
 - Nessuna registrazione, autenticazione, analytics, pubblicità, fingerprinting o cookie.
 - L'unico dato che lascia il dispositivo sono le coordinate del punto selezionato, inviate al
-  provider meteorologico (richiesta senza credenziali e senza referrer).
+  provider meteorologico in due richieste (suolo e profilo), senza credenziali e senza referrer.
 - Osservazioni e scenari restano nell'IndexedDB del browser.
 - Le tile della mappa sono scaricate da OpenFreeMap, come per qualunque mappa web.
 
 ## Fonti dati
 
-- **Open-Meteo** — Forecast API, blocco `current`
-  (`https://api.open-meteo.com/v1/forecast`), documentazione: <https://open-meteo.com/en/docs>.
-  Gratuita per uso non commerciale, senza chiave. Dati con licenza CC BY 4.0.
+- **Open-Meteo** — Forecast API, blocco `current` (`https://api.open-meteo.com/v1/forecast`),
+  documentazione: <https://open-meteo.com/en/docs>. Variabili al suolo e variabili sui livelli di pressione
+  (`temperature_850hPa`, `geopotential_height_500hPa`, …), `cape`, `convective_inhibition`, `lifted_index`,
+  `freezing_level_height`. Gratuita per uso non commerciale, senza chiave. Dati con licenza **CC BY 4.0**.
+  Citazione: Zippenfenig, P. (2023). *Open-Meteo.com Weather API* [Computer software]. Zenodo.
+  <https://doi.org/10.5281/zenodo.7970649>. I dati derivano dai modelli dei servizi meteorologici nazionali
+  combinati da Open-Meteo.
 - **Mappa** — OpenFreeMap, © OpenMapTiles, dati © OpenStreetMap contributors.
 
 ## Avvertenza
@@ -219,6 +297,7 @@ sempre riferimento alle autorità competenti.
 
 - 0.1 — Osservazione reale puntuale, simulazione didattica di temperatura, umidità e vento. ✔
 - 0.2 — TEMPESTA LAB: ConvectiveEngine didattico e radar simulato animato sulla mappa. ✔
+- 0.3 — PROFILO ATMOSFERICO (Open-Meteo), VerticalProfileEngine, GRANDINE LAB e DOWNBURST LAB. ✔
 - Prossimi passi — nuovi provider (radar, satellite, fulminazioni) sulla stessa architettura;
   nuove missioni; confronto fra simulazione e osservazioni successive.
 

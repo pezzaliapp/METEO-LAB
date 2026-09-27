@@ -1,5 +1,6 @@
 import { TIMELINE_MINUTES } from '../simulation/timeline';
 import { clamp, lerp, round, saturationMixingRatio, smoothstep } from './physics';
+import { temperatureAt, type ProfileColumn, type Wind } from './VerticalProfileEngine';
 
 /**
  * ConvectiveEngine — modello DIDATTICO della convezione per TEMPESTA LAB.
@@ -10,8 +11,10 @@ import { clamp, lerp, round, saturationMixingRatio, smoothstep } from './physics
  * lo sviluppo di un temporale. Nessun numero casuale: stesso input → stesso risultato.
  *
  * DATI DISPONIBILI E PROXY
- * L'osservazione reale contiene solo grandezze al suolo. Il profilo verticale
- * (radiosondaggio) NON è disponibile, quindi:
+ * v0.3: se è disponibile il PROFILO ATMOSFERICO (Open-Meteo, livelli 1000…300 hPa,
+ * dato modellistico) l'ambiente in quota, lo shear 0–6 km e il vento che trasporta la
+ * cella sono presi dal profilo (VerticalProfileEngine). Sopra l'ultimo livello si prosegue
+ * con il gradiente standard. Solo se il profilo manca si usano i proxy seguenti:
  *
  *  1. Ambiente in quota (proxy dichiarato): si ipotizza un profilo con il gradiente
  *     termico medio dell'Atmosfera Standard ICAO (6,5 °C/km) fino a 11 km,
@@ -72,9 +75,17 @@ export interface ConvectiveInput {
   readonly surfacePressure: number | null;
   readonly latitude: number;
   readonly longitude: number;
+  /** Colonna dell'ambiente dal PROFILO ATMOSFERICO (suolo reale); null/assente → profilo standard ipotizzato. */
+  readonly environment?: ProfileColumn | null;
+  /** Vento medio 0–6 km dal profilo (trasporto della cella). */
+  readonly steeringWind?: Wind | null;
+  /** Shear 0–6 km dal profilo (m/s). */
+  readonly deepLayerShear?: number | null;
 }
 
 export interface ConvectiveDiagnostics {
+  /** Origine dell'ambiente in quota. */
+  readonly environmentSource: 'profile' | 'standard';
   /** Punto di rugiada della particella (°C). */
   readonly dewPoint: number;
   /** Livello di condensazione (m dal suolo), null se non raggiunto entro il profilo. */
@@ -236,8 +247,24 @@ function environmentTemperatureAt(surface: number, height: number): number {
   return surface - STANDARD_LAPSE_RATE * Math.min(height, TROPOPAUSE_HEIGHT);
 }
 
+/** Temperatura dell'ambiente alla quota z (m dal suolo): profilo se disponibile, altrimenti atmosfera standard. */
+function environmentFunction(input: ConvectiveInput): (height: number) => number {
+  const column = input.environment;
+  const top = column?.points.at(-1);
+  if (!column || !top) return (height) => environmentTemperatureAt(input.environmentTemperature, height);
+  const tropopause = TROPOPAUSE_HEIGHT - column.elevation;
+  return (height) => {
+    const value = temperatureAt(column, height);
+    if (value !== null) return value;
+    return top.temperature - STANDARD_LAPSE_RATE * Math.max(0, Math.min(height, tropopause) - top.height);
+  };
+}
+
 /** Solleva la particella sul profilo ipotizzato e calcola gli indici didattici. */
-export function liftParcel(input: ConvectiveInput): Omit<ConvectiveDiagnostics, 'updraft' | 'shearProxy' | 'bulkRichardson'> {
+export function liftParcel(
+  input: ConvectiveInput,
+): Omit<ConvectiveDiagnostics, 'updraft' | 'shearProxy' | 'bulkRichardson' | 'environmentSource'> {
+  const environmentAt = environmentFunction(input);
   const dewPoint = dewPointOf(input.temperature, input.relativeHumidity);
   let pressure = input.surfacePressure ?? STANDARD_PRESSURE;
   const mixingRatio = saturationMixingRatio(dewPoint, pressure);
@@ -252,8 +279,8 @@ export function liftParcel(input: ConvectiveInput): Omit<ConvectiveDiagnostics, 
   let liftedIndex: number | null = null;
 
   for (let z = 0; z < PROFILE_TOP; z += STEP) {
-    const envLow = environmentTemperatureAt(input.environmentTemperature, z);
-    const envHigh = environmentTemperatureAt(input.environmentTemperature, z + STEP);
+    const envLow = environmentAt(z);
+    const envHigh = environmentAt(z + STEP);
     // Equazione ipsometrica sul passo.
     const nextPressure = pressure * Math.exp((-G * STEP) / (RD * ((envLow + envHigh) / 2 + KELVIN)));
 
@@ -305,6 +332,8 @@ export function liftParcel(input: ConvectiveInput): Omit<ConvectiveDiagnostics, 
 /* ------------------------------------------------------------------------ */
 
 export function steeringOf(input: ConvectiveInput): { speed: number; direction: number; assumed: boolean } {
+  // Con il profilo: vento medio 0–6 km (la cella si muove circa con il vento medio dello strato nuvoloso).
+  if (input.steeringWind) return { speed: input.steeringWind.speed, direction: input.steeringWind.directionTo, assumed: false };
   const assumed = input.windDirection === null;
   const from = input.windDirection ?? ASSUMED_WIND_DIRECTION;
   const turning = input.latitude >= 0 ? FRICTION_TURNING : -FRICTION_TURNING;
@@ -355,13 +384,14 @@ export class ConvectiveEngine {
   evaluate(input: ConvectiveInput): ConvectiveOutlook {
     const ascent = liftParcel(input);
     const steering = steeringOf(input);
-    const shear = (steering.speed * 1000) / 3600; // km/h → m/s
+    const shear = input.deepLayerShear ?? (steering.speed * 1000) / 3600; // proxy: km/h → m/s
     const cape = ascent.capeProxy;
     const cin = ascent.cinProxy;
 
     const updraft = 0.5 * Math.sqrt(2 * cape);
     const bulkRichardson = shear >= 1 ? cape / (0.5 * shear * shear) : null;
     const diagnostics: ConvectiveDiagnostics = {
+      environmentSource: input.environment ? 'profile' : 'standard',
       ...ascent,
       updraft,
       shearProxy: shear,

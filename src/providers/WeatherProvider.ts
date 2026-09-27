@@ -1,3 +1,4 @@
+import type { AtmosphericProfile } from '../models/AtmosphericProfile';
 import type { AtmosphericState } from '../models/AtmosphericState';
 
 /**
@@ -12,6 +13,8 @@ export interface WeatherProvider {
   readonly name: string;
   readonly attribution: { readonly text: string; readonly url: string };
   getCurrentState(latitude: number, longitude: number, options?: RequestOptions): Promise<AtmosphericState>;
+  /** PROFILO ATMOSFERICO verticale (modellistico), se il provider lo offre. */
+  getProfile?(latitude: number, longitude: number, options?: RequestOptions): Promise<AtmosphericProfile>;
 }
 
 export interface RequestOptions {

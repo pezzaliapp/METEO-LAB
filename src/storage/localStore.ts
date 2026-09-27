@@ -1,10 +1,12 @@
+import type { AtmosphericProfile } from '../models/AtmosphericProfile';
 import type { AtmosphericState } from '../models/AtmosphericState';
 import type { SimulationParameters } from '../models/SimulationState';
 
 /**
  * Persistenza locale su IndexedDB. Nessun dato lascia il dispositivo.
  *
- *  - "observations": ultima osservazione reale valida (chiave "last")
+ *  - "observations": ultima osservazione reale valida (chiave "last") e il suo
+ *                    PROFILO ATMOSFERICO (chiave "last-profile")
  *  - "scenarios":    scenari di simulazione salvati dall'utente
  */
 const DB_NAME = 'meteo-lab';
@@ -12,6 +14,7 @@ const DB_VERSION = 1;
 const OBSERVATIONS = 'observations';
 const SCENARIOS = 'scenarios';
 const LAST_KEY = 'last';
+const LAST_PROFILE_KEY = 'last-profile';
 
 export interface SavedScenario {
   readonly id: string;
@@ -21,6 +24,8 @@ export interface SavedScenario {
   readonly origin: AtmosphericState;
   /** Condizioni iniziali impostate dall'utente. */
   readonly parameters: SimulationParameters;
+  /** PROFILO ATMOSFERICO del punto (assente negli scenari salvati con v0.1/v0.2). */
+  readonly profile?: AtmosphericProfile | null;
 }
 
 let dbPromise: Promise<IDBDatabase> | null = null;
@@ -65,6 +70,17 @@ export async function saveLastObservation(observation: AtmosphericState): Promis
 export async function loadLastObservation(): Promise<AtmosphericState | null> {
   const value = await run<unknown>(OBSERVATIONS, 'readonly', (store) => store.get(LAST_KEY));
   return (value as AtmosphericState | undefined) ?? null;
+}
+
+/** Salva (o cancella, con null) il profilo associato all'ultima osservazione. */
+export async function saveLastProfile(profile: AtmosphericProfile | null): Promise<void> {
+  if (profile) await run(OBSERVATIONS, 'readwrite', (store) => store.put(profile, LAST_PROFILE_KEY));
+  else await run(OBSERVATIONS, 'readwrite', (store) => store.delete(LAST_PROFILE_KEY));
+}
+
+export async function loadLastProfile(): Promise<AtmosphericProfile | null> {
+  const value = await run<unknown>(OBSERVATIONS, 'readonly', (store) => store.get(LAST_PROFILE_KEY));
+  return (value as AtmosphericProfile | undefined) ?? null;
 }
 
 export async function saveScenario(scenario: SavedScenario): Promise<void> {

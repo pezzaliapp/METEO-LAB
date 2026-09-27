@@ -1,5 +1,7 @@
-import { useId } from 'react';
+import { useId, useState } from 'react';
 import type { ConvectiveOutlook } from '../engine/ConvectiveEngine';
+import type { SevereOutlook } from '../engine/SevereWeather';
+import type { SurfaceAir } from '../engine/VerticalProfileEngine';
 import {
   PARAMETER_LIMITS,
   type AssumedField,
@@ -14,6 +16,21 @@ import {
   summarize,
   type ParameterChanges,
 } from '../simulation/tempestaNarrative';
+import {
+  DOWNBURST_STAGE_LABELS,
+  HAIL_SIZE_LABELS,
+  HAIL_STAGE_LABELS,
+  OUTFLOW_LABELS,
+  SEVERE_TITLES,
+  downburstExplanation,
+  downburstSentence,
+  formatIndex,
+  hailExplanation,
+  hailSentence,
+  severeResult,
+} from '../simulation/severeNarrative';
+import { CellSectionView } from './CellSectionView';
+import { ProfileView } from './ProfileView';
 import { formatCoordinates, formatDateTime, formatDirection, formatValue } from './format';
 
 interface TempestaLabPanelProps {
@@ -55,6 +72,36 @@ const ORIGIN_LABELS: Record<SimulationState['originKind'], string> = {
 
 const DECIMALS: Record<keyof SimulationParameters, number> = { temperature: 1, relativeHumidity: 0, windSpeed: 0 };
 
+export type Mission = 1 | 2 | 3;
+
+const MISSIONS: Record<Mission, { title: string; text: readonly string[] }> = {
+  1: { title: 'CREA UNA TEMPESTA', text: ['Modifica l’atmosfera.', 'Riesci a creare le condizioni per lo sviluppo di un temporale?'] },
+  2: {
+    title: 'GRANDINE',
+    text: [
+      'Una corrente ascensionale intensa può mantenere le particelle di ghiaccio nella nube abbastanza a lungo da farle crescere.',
+      'Riesci a creare le condizioni favorevoli?',
+    ],
+  },
+  3: {
+    title: 'DOWNBURST',
+    text: [
+      'Precipitazioni intense e raffreddamento dell’aria possono accelerare una corrente discendente.',
+      'Riesci a produrre un downburst?',
+    ],
+  },
+};
+
+function realSurface(simulation: SimulationState): SurfaceAir | null {
+  const { temperature, relativeHumidity, windSpeed, windDirection } = simulation.origin;
+  if (temperature === null || relativeHumidity === null) return null;
+  return { temperature, relativeHumidity, windSpeed: windSpeed ?? 0, windDirection };
+}
+
+function simSurface(simulation: SimulationState): SurfaceAir {
+  return { ...simulation.parameters, windDirection: simulation.origin.windDirection };
+}
+
 function realValue(simulation: SimulationState, key: keyof SimulationParameters): number | null {
   return simulation.origin[key];
 }
@@ -76,6 +123,8 @@ export function TempestaLabPanel(props: TempestaLabPanelProps) {
   const { simulation } = props;
   const baseId = useId();
   const outlook = simulation.convection;
+  const [mission, setMission] = useState<Mission>(1);
+  const [showProfile, setShowProfile] = useState(false);
 
   return (
     <section className="panel panel--sim" aria-labelledby={`${baseId}-title`}>
@@ -88,6 +137,14 @@ export function TempestaLabPanel(props: TempestaLabPanelProps) {
         <h2 id={`${baseId}-title`} className="panel__title lab-title">
           TEMPESTA LAB
         </h2>
+        <button
+          type="button"
+          className="button button--small button--ghost"
+          aria-pressed={showProfile}
+          onClick={() => setShowProfile((value) => !value)}
+        >
+          PROFILO
+        </button>
       </div>
       <p className="panel__meta">
         <span>{formatCoordinates(simulation.origin.latitude, simulation.origin.longitude)}</span>
@@ -97,7 +154,13 @@ export function TempestaLabPanel(props: TempestaLabPanelProps) {
         </span>
       </p>
 
-      {!outlook ? <LabSetup {...props} baseId={baseId} /> : <Experiment {...props} outlook={outlook} />}
+      {showProfile && <ProfileView profile={simulation.profile} real={realSurface(simulation)} sim={simSurface(simulation)} />}
+
+      {!outlook ? (
+        <LabSetup {...props} baseId={baseId} mission={mission} onMission={setMission} />
+      ) : (
+        <Experiment {...props} outlook={outlook} severe={simulation.severe} mission={mission} />
+      )}
 
       <details className="sim-table">
         <summary>Dati di superficie simulati T+0 … T+90</summary>
@@ -138,8 +201,12 @@ export function TempestaLabPanel(props: TempestaLabPanelProps) {
             vapore condensa (base delle nubi), poi continua a salire più lentamente.
           </li>
           <li>
-            L’aria in quota non è misurata: si usa un profilo ipotizzato (atmosfera standard, −6,5 °C/km) che parte
-            dalla temperatura reale al suolo.
+            L’aria in quota è quella del PROFILO ATMOSFERICO (Open-Meteo: dato dei modelli numerici, non un
+            radiosondaggio). Se il profilo manca si usa un profilo standard ipotizzato (−6,5 °C/km).
+          </li>
+          <li>
+            Grandine e downburst sono valutati solo con il profilo: updraft, zero termico, aria fredda o secca in
+            quota, vento che cambia con la quota. Gli indici sono didattici, non probabilità.
           </li>
           <li>
             Se l’aria sollevata resta più calda dell’ambiente accumula energia (una «CAPE didattica», non la CAPE
@@ -170,17 +237,35 @@ export function TempestaLabPanel(props: TempestaLabPanelProps) {
   );
 }
 
-function LabSetup(props: TempestaLabPanelProps & { readonly baseId: string }) {
-  const { simulation, baseId } = props;
+function LabSetup(
+  props: TempestaLabPanelProps & { readonly baseId: string; readonly mission: Mission; readonly onMission: (mission: Mission) => void },
+) {
+  const { simulation, baseId, mission } = props;
+  const current = MISSIONS[mission];
   return (
     <>
+      <div className="missions" role="group" aria-label="Missioni">
+        {([1, 2, 3] as const).map((id) => (
+          <button key={id} type="button" className="missions__tab" aria-pressed={id === mission} onClick={() => props.onMission(id)}>
+            0{id}
+          </button>
+        ))}
+      </div>
       <div className="mission">
-        <p className="mission__tag">MISSIONE 01 · TEMPESTA</p>
-        <p className="mission__text">
-          Modifica l’atmosfera.
-          <br />
-          Riesci a creare le condizioni per lo sviluppo di un temporale?
+        <p className="mission__tag">
+          MISSIONE 0{mission} · {current.title}
         </p>
+        <p className="mission__text">
+          {current.text.map((line, index) => (
+            <span key={index}>
+              {index > 0 && <br />}
+              {line}
+            </span>
+          ))}
+        </p>
+        {mission > 1 && !simulation.profile && (
+          <p className="panel__note">DATI VERTICALI INSUFFICIENTI: senza profilo atmosferico la missione non può essere valutata.</p>
+        )}
       </div>
 
       {simulation.assumed.length > 0 && (
@@ -246,8 +331,10 @@ function LabSetup(props: TempestaLabPanelProps & { readonly baseId: string }) {
   );
 }
 
-function Experiment(props: TempestaLabPanelProps & { readonly outlook: ConvectiveOutlook }) {
-  const { simulation, outlook, playing, finished } = props;
+function Experiment(
+  props: TempestaLabPanelProps & { readonly outlook: ConvectiveOutlook; readonly severe: SevereOutlook | null; readonly mission: Mission },
+) {
+  const { simulation, outlook, playing, finished, severe, mission } = props;
   const changes = parameterChanges(simulation);
   const minute = simulation.currentMinute;
   const frame = outlook.frames.find((item) => item.minute === minute);
@@ -261,6 +348,12 @@ function Experiment(props: TempestaLabPanelProps & { readonly outlook: Convectiv
         {outcomeTitle(outlook)}
       </p>
 
+      {developed && severe && (
+        <p className={`severe-outcome severe-outcome--${severeResult(severe).toLowerCase()}`}>
+          {severe.vertical.available ? SEVERE_TITLES[severeResult(severe)] : 'GRANDINE / DOWNBURST: DATI VERTICALI INSUFFICIENTI'}
+        </p>
+      )}
+
       {!developed && <p className="lab-sentence">{summary.explanation}</p>}
 
       {developed && frame && (
@@ -270,6 +363,8 @@ function Experiment(props: TempestaLabPanelProps & { readonly outlook: Convectiv
             <span className="stage-line__stage">{STAGE_LABELS[frame.stage]}</span>
           </div>
           <p className="lab-sentence">{phaseSentence(outlook, minute, changes)}</p>
+          {severe && <SevereNow severe={severe} minute={minute} />}
+          {severe && <CellSectionView convection={outlook} severe={severe} minute={minute} />}
 
           <div className="timeline" role="group" aria-label="Timeline dell'esperimento, da T+0 a T+90 minuti">
             <div className="timeline__track" aria-hidden="true">
@@ -381,6 +476,7 @@ function Experiment(props: TempestaLabPanelProps & { readonly outlook: Convectiv
             )}
           </dl>
           {developed && <p className="lab-sentence">{summary.explanation}</p>}
+          {developed && severe && <SevereResults severe={severe} convection={outlook} mission={mission} />}
         </div>
       )}
 
@@ -388,5 +484,75 @@ function Experiment(props: TempestaLabPanelProps & { readonly outlook: Convectiv
         {developed ? 'MODIFICA L’ATMOSFERA' : 'MODIFICA L’ATMOSFERA E RIPROVA'}
       </button>
     </>
+  );
+}
+
+/** Stadio corrente di grandine e downburst (solo se il fenomeno è attivo). */
+function SevereNow({ severe, minute }: { readonly severe: SevereOutlook; readonly minute: number }) {
+  const hail = severe.hail.frames.find((frame) => frame.minute === minute)?.stage ?? 'NONE';
+  const burst = severe.downburst.frames.find((frame) => frame.minute === minute)?.stage ?? 'NONE';
+  const hailText = hailSentence(hail);
+  const burstText = downburstSentence(burst);
+  if (!hailText && !burstText) return null;
+  return (
+    <div className="severe-now" aria-live="polite">
+      {hailText && (
+        <p className="severe-now__item severe-now__item--hail">
+          <strong>GRANDINE · {HAIL_STAGE_LABELS[hail]}</strong> {hailText}
+        </p>
+      )}
+      {burstText && (
+        <p className="severe-now__item severe-now__item--burst">
+          <strong>DOWNBURST · {DOWNBURST_STAGE_LABELS[burst]}</strong> {burstText}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function SevereResults(props: { readonly severe: SevereOutlook; readonly convection: ConvectiveOutlook; readonly mission: Mission }) {
+  const { severe, convection, mission } = props;
+  const cloudBase = severe.vertical.available ? severe.vertical.cloudBase : null;
+  const blocks = [
+    {
+      key: 'hail',
+      title: 'GRANDINE',
+      available: severe.hail.available,
+      occurs: severe.hail.occurs,
+      index: severe.hail.hailPotential,
+      detail: severe.hail.occurs ? `classe didattica: ${HAIL_SIZE_LABELS[severe.hail.hailSizeClass]}` : null,
+      text: hailExplanation(severe.hail, convection),
+    },
+    {
+      key: 'burst',
+      title: 'DOWNBURST',
+      available: severe.downburst.available,
+      occurs: severe.downburst.occurs,
+      index: severe.downburst.downburstPotential,
+      detail:
+        severe.downburst.occurs && severe.downburst.outflowSpeedClass
+          ? `outflow ${OUTFLOW_LABELS[severe.downburst.outflowSpeedClass]} · fronte fino a ${formatValue(severe.downburst.outflowRadius, 'km', 0)}`
+          : null,
+      text: downburstExplanation(severe.downburst, convection, cloudBase),
+    },
+  ];
+  if (mission === 3) blocks.reverse();
+  return (
+    <div className="severe-results">
+      {blocks.map((block) => (
+        <section key={block.key} className={`severe-block severe-block--${block.key}`}>
+          <h4 className="severe-block__title">
+            {block.title} ·{' '}
+            {!block.available ? 'DATI VERTICALI INSUFFICIENTI' : block.occurs ? 'PERCHÉ È SUCCESSO' : 'PERCHÉ NON È SUCCESSO'}
+          </h4>
+          {block.available && (
+            <p className="severe-block__meta">
+              indice didattico {formatIndex(block.index)} (non è una probabilità){block.detail ? ` · ${block.detail}` : ''}
+            </p>
+          )}
+          <p className="lab-sentence">{block.text}</p>
+        </section>
+      ))}
+    </div>
   );
 }
