@@ -1214,3 +1214,349 @@ tr[aria-current='step'] {
     animation: none;
   }
 }
+
+/* v0.4 — MISSIONI ------------------------------------------------------------ */
+
+.modes {
+  display: inline-flex;
+  gap: 0.25rem;
+  padding: 0.2rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+.modes__tab {
+  min-height: 34px;
+  padding: 0.2rem 0.85rem;
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+.modes__tab[aria-pressed='true'] {
+  background: var(--surface-2);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--sim);
+}
+
+.mission-control__title {
+  color: var(--sim);
+  letter-spacing: 0.14em;
+}
+.mission-list {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0 0 0.75rem;
+  padding: 0;
+  list-style: none;
+}
+.mission-item {
+  padding: 0.6rem 0.7rem;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.mission-item--done {
+  border-color: var(--sim);
+}
+.mission-item--later {
+  border-style: dashed;
+}
+.mission-item__head {
+  display: flex;
+  gap: 0.6rem;
+  align-items: baseline;
+}
+.mission-item__number {
+  color: var(--sim);
+  font-family: var(--mono);
+  font-weight: 800;
+}
+.mission-item__title {
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.mission-item__objective {
+  margin: 0.2rem 0 0.3rem;
+  font-size: 0.88rem;
+}
+.mission-item__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.8rem;
+  margin: 0 0 0.5rem;
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 0.7rem;
+}
+.mission-item .controls-row {
+  margin: 0;
+}
+.live-challenge {
+  margin-top: 0.5rem;
+  padding: 0.6rem 0.7rem;
+  border: 1px dashed var(--live);
+  border-radius: var(--radius);
+}
+.live-challenge__title {
+  margin: 0 0 0.3rem;
+  color: var(--live);
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.mission-header {
+  margin: 0 0 0.5rem;
+  padding: 0.55rem 0.75rem;
+  background: var(--surface);
+  border: 2px dashed var(--sim);
+  border-radius: var(--radius);
+}
+.mission-header p {
+  margin: 0;
+}
+.mission-header__title {
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+.mission-header__tag {
+  color: var(--sim);
+  font-family: var(--mono);
+}
+.mission-header__objective {
+  margin-top: 0.15rem !important;
+  font-size: 0.88rem;
+}
+.mission-header__objective strong {
+  color: var(--sim);
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+}
+.mission-header__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem 0.9rem;
+  margin-top: 0.3rem !important;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+}
+.mission-header__source {
+  color: var(--text-muted);
+}
+.mission-header__notice {
+  margin-top: 0.25rem !important;
+  color: var(--sim);
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.06em;
+}
+
+.parameter--locked {
+  opacity: 0.55;
+}
+.parameters:disabled input[type='range'] {
+  cursor: not-allowed;
+}
+
+.hypothesis {
+  margin: 0 0 0.9rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--sim);
+  border-radius: var(--radius);
+}
+.hypothesis legend {
+  padding: 0 0.3rem;
+  color: var(--sim);
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+.hypothesis__options {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 0.35rem;
+}
+.hypothesis__option {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 40px;
+  padding: 0.3rem 0.55rem;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.hypothesis__option:has(input:checked) {
+  border-color: var(--sim);
+  color: var(--sim);
+}
+.hypothesis__option input {
+  accent-color: var(--sim);
+}
+.hypothesis .panel__note {
+  margin: 0.4rem 0 0;
+}
+.button--start:disabled {
+  background: var(--surface-2);
+  color: var(--text-muted);
+}
+
+.mission-result {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.mission-result--done {
+  border: 2px solid var(--sim);
+}
+.mission-result__compare {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.4rem;
+  margin: 0;
+}
+.mission-result__compare div {
+  padding: 0.4rem 0.55rem;
+  background: var(--surface-2);
+  border-radius: var(--radius);
+}
+.mission-result__compare dt,
+.before-after__title,
+.mission-result__why-title {
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+}
+.mission-result__compare dd {
+  margin: 0.15rem 0 0;
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+.mission-result__check {
+  margin: 0.5rem 0;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+.before-after {
+  margin: 0 0 0.6rem;
+}
+.before-after__title {
+  margin: 0.4rem 0 0.2rem;
+}
+.before-after dl {
+  display: grid;
+  gap: 0.2rem;
+  margin: 0;
+}
+.before-after dl div {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-family: var(--mono);
+  font-size: 0.82rem;
+}
+.before-after dd {
+  margin: 0;
+}
+.effects {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.effects li {
+  padding: 0.2rem 0.5rem;
+  background: var(--surface-2);
+  border-radius: 999px;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+}
+.before-after__cost {
+  margin: 0.5rem 0 0;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+.before-after__cost .panel__note {
+  font-weight: 400;
+}
+.mission-result__why-title {
+  margin: 0.4rem 0 0.2rem;
+}
+.aha__status {
+  margin: 0 0 0.2rem;
+  color: var(--sim);
+  font-family: var(--mono);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+.aha__headline {
+  margin: 0 0 0.4rem;
+  font-size: 1.05rem;
+  font-weight: 800;
+}
+.retry__status {
+  margin: 0.2rem 0 0.5rem;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+.hint {
+  margin: 0.4rem 0;
+  padding: 0.45rem 0.6rem;
+  border-left: 3px solid var(--sim);
+  background: var(--surface-2);
+  font-size: 0.9rem;
+}
+.hint strong {
+  margin-right: 0.35rem;
+  color: var(--sim);
+  font-family: var(--mono);
+  font-size: 0.72rem;
+}
+.mission-result .controls-row {
+  margin: 0.6rem 0 0;
+}
+
+@media (max-width: 599px) {
+  .header {
+    gap: 0.5rem;
+  }
+  .app--missions .map-frame {
+    height: 38vh;
+    min-height: 240px;
+  }
+  .mission-header {
+    padding: 0.45rem 0.6rem;
+  }
+  /* Su smartphone l'avviso resta nell'intestazione sopra la mappa: niente doppione nel pannello. */
+  .panel--mission .sim-banner {
+    display: none;
+  }
+  .panel--mission > .mission__text,
+  .panel--mission > .panel__note {
+    margin: 0 0 0.4rem;
+    font-size: 0.8rem;
+  }
+  .panel--mission .parameter + .parameter {
+    margin-top: 0.5rem;
+  }
+}

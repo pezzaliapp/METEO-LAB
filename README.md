@@ -6,7 +6,7 @@ METEO LAB è una Progressive Web App educativa e sperimentale dedicata alla mete
 Non è un'app meteo tradizionale e non fornisce previsioni: usa dati meteorologici reali come
 punto di partenza per osservare, interpretare e sperimentare con un simulatore didattico.
 
-Versione: **0.3.0** · Autore: **Alessandro Pezzali** · Licenza: **MIT**
+Versione: **0.4.0** · Autore: **Alessandro Pezzali** · Licenza: **MIT**
 
 ---
 
@@ -43,6 +43,53 @@ permanente «SIMULAZIONE DIDATTICA — NON È UNA PREVISIONE METEOROLOGICA».
 5. Premi **AVVIA ESPERIMENTO** e osserva la mappa: **PLAY**, **PAUSA**, **STEP**, **RESET** e i tempi
    T+0 … T+90 cliccabili.
 6. **SALVA SCENARIO** conserva lo scenario sul dispositivo; **TORNA AL LIVE** ripristina l'osservazione reale.
+
+## METEO LAB — MISSIONI (0.4)
+
+METEO LAB ha due modalità, scelte in alto: **ESPLORA** (il laboratorio: dati reali, TEMPESTA, GRANDINE e
+DOWNBURST LAB) e **MISSIONI**, un gioco didattico che insegna attraverso esperimenti **deterministici** basati
+sugli **stessi motori meteorologici** del laboratorio. Nessun login, nessun account, nessuna classifica, nessun
+numero casuale: stesso scenario + stesse modifiche = stesso risultato.
+
+```
+OSSERVA → RICEVI UNA MISSIONE → FORMULA UN'IPOTESI → MODIFICA L'ATMOSFERA → AVVIA L'ESPERIMENTO
+→ OSSERVA COSA SUCCEDE → CAPISCI PERCHÉ → MISSIONE COMPLETATA / RIPROVA
+```
+
+| # | Missione | Successo (deciso dai motori) | Scenario |
+|---|---|---|---|
+| 01 | ACCENDI L’ATMOSFERA | energia convettiva didattica oltre la soglia di convezione marginale del ConvectiveEngine | Pianura |
+| 02 | COSTRUISCI UNA TEMPESTA | il ConvectiveEngine produce una cella | Pianura |
+| 03 | CREA GRANDINE | l’HailEngine produce uno stadio ≠ NONE | Pianura |
+| 04 | CREA UN DOWNBURST | il DownburstEngine raggiunge IMPACT | Altopiano semi-arido |
+| 05 | TEMPORALE, MA NON SEVERO | cella sì, grandine e downburst no | Pianura |
+| 06 | FERMA LA GRANDINE | parte con grandine: cella sì, grandine no | Pianura afosa |
+| 07 | FERMA IL DOWNBURST | parte con downburst: cella sì, IMPACT no | Pomeriggio caldo sull’altopiano |
+| 08 | IL MINIMO CAMBIAMENTO | cella con INTERVENTO MINIMO | Altopiano interno molto secco |
+
+- **SCENARIO DIDATTICO** (missioni principali): profili reali Open-Meteo **congelati e versionati** nel progetto
+  (`src/game/scenarioData.ts`, v1), in due scenari con la superficie impostata per partire da un fenomeno. Non sono
+  dati attuali e sono sempre etichettati «SCENARIO DIDATTICO». Ogni missione è realizzabile e non risolta in
+  partenza (verificato nei test con gli stessi motori).
+- **LIVE CHALLENGE** (avanzata): parte dalle condizioni meteorologiche del momento nel punto scelto
+  («ESPERIMENTO SIMULATO»). Se con il meteo di oggi la missione non è realizzabile nel modello, il gioco lo dice.
+- Il giocatore modifica solo **temperatura, umidità e vento al suolo** (alcune missioni ne bloccano uno). CAPE, CIN,
+  DCAPE, zero termico e indici sono **conseguenze**, mai controlli; nessun valore suggerito.
+- **Ipotesi** prima di ogni esperimento («COSA PENSI CHE SUCCEDERÀ?»): non influisce sulla simulazione; alla fine
+  PENSAVI / È SUCCESSO e IPOTESI CONFERMATA / CONFERMATA IN PARTE / NON CONFERMATA.
+- **Tentativi** numerati, senza penalità. Dopo il secondo tentativo non riuscito compare **INDIZIO**, derivato dal
+  fattore limitante calcolato dai motori, senza numeri da impostare.
+- **Perché**: frasi causali generate dai risultati dei motori (il momento «aha»), confronto **PRIMA → DOPO** delle sole
+  grandezze cambiate ed **EFFETTO** (↑/↓ solo dove il calcolo cambia davvero).
+- **Indice di intervento**: distanza normalizzata dallo stato iniziale
+  `√((ΔT/10 °C)² + (ΔUR/30 %)² + (Δvento/30 km/h)²)` → INTERVENTO MINIMO (< 0,5), MODERATO (< 1), FORTE.
+  Non è un punteggio scientifico.
+- **Progressione locale** in IndexedDB (missioni completate, tentativi, miglior intervento, ultima missione).
+  Sblocco morbido: 01 e 02 subito; 03, 04, 05 e 08 dopo 02; 06 e 07 dopo aver osservato grandine o downburst;
+  **MOSTRA TUTTE LE MISSIONI** le rende sempre accessibili.
+
+Codice: `src/game/MissionEngine.ts` (regole, nessuna meteorologia), `src/game/missions.ts` (le otto missioni),
+`src/game/scenarios.ts` (scenari), `src/game/progress.ts` (progressione).
 
 ## Dati reali, dati modellistici, simulazione (0.3)
 
@@ -192,7 +239,8 @@ src/
   engine/       AtmosphereEngine, VerticalProfileEngine, ConvectiveEngine, HailEngine, DownburstEngine,
                 SevereWeather (catena completa), SimulatedRadar e SevereGeometry (mappa), fisica elementare
   simulation/   timeline T+0 … T+90 (passo 15 minuti) e testi di TEMPESTA / GRANDINE / DOWNBURST LAB
-  storage/      IndexedDB: ultima osservazione, ultimo profilo e scenari salvati
+  game/         MISSIONI: MissionEngine, otto missioni, scenari didattici congelati, progressione
+  storage/      IndexedDB: ultima osservazione, ultimo profilo, scenari salvati, progressione missioni
   map/          mappa MapLibre GL (caricata in modo differito)
   components/   interfaccia React
   pwa/          service worker e registrazione
@@ -273,7 +321,7 @@ Nelle impostazioni del repository: **Settings → Pages → Build and deployment
 - Nessuna registrazione, autenticazione, analytics, pubblicità, fingerprinting o cookie.
 - L'unico dato che lascia il dispositivo sono le coordinate del punto selezionato, inviate al
   provider meteorologico in due richieste (suolo e profilo), senza credenziali e senza referrer.
-- Osservazioni e scenari restano nell'IndexedDB del browser.
+- Osservazioni, scenari e progressione delle missioni restano nell'IndexedDB del browser.
 - Le tile della mappa sono scaricate da OpenFreeMap, come per qualunque mappa web.
 
 ## Fonti dati
@@ -298,6 +346,7 @@ sempre riferimento alle autorità competenti.
 - 0.1 — Osservazione reale puntuale, simulazione didattica di temperatura, umidità e vento. ✔
 - 0.2 — TEMPESTA LAB: ConvectiveEngine didattico e radar simulato animato sulla mappa. ✔
 - 0.3 — PROFILO ATMOSFERICO (Open-Meteo), VerticalProfileEngine, GRANDINE LAB e DOWNBURST LAB. ✔
+- 0.4 — METEO LAB MISSIONI: otto missioni deterministiche, scenari didattici, LIVE CHALLENGE, ipotesi e indizi. ✔
 - Prossimi passi — nuovi provider (radar, satellite, fulminazioni) sulla stessa architettura;
   nuove missioni; confronto fra simulazione e osservazioni successive.
 

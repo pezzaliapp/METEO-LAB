@@ -3,35 +3,25 @@ import type { ConvectiveOutlook } from '../engine/ConvectiveEngine';
 import type { SevereOutlook } from '../engine/SevereWeather';
 import type { SurfaceAir } from '../engine/VerticalProfileEngine';
 import {
-  PARAMETER_LIMITS,
   type AssumedField,
   type SimulationParameters,
   type SimulationState,
 } from '../models/SimulationState';
-import { SIMULATION_DURATION_MINUTES, TIMELINE_MINUTES, formatOffset } from '../simulation/timeline';
+
+import { outcomeTitle, summarize } from '../simulation/tempestaNarrative';
+import { formatOffset } from '../simulation/timeline';
 import {
-  STAGE_LABELS,
-  outcomeTitle,
-  phaseSentence,
-  summarize,
-  type ParameterChanges,
-} from '../simulation/tempestaNarrative';
-import {
-  DOWNBURST_STAGE_LABELS,
   HAIL_SIZE_LABELS,
-  HAIL_STAGE_LABELS,
   OUTFLOW_LABELS,
   SEVERE_TITLES,
   downburstExplanation,
-  downburstSentence,
   formatIndex,
   hailExplanation,
-  hailSentence,
   severeResult,
 } from '../simulation/severeNarrative';
-import { CellSectionView } from './CellSectionView';
+import { AtmosphereControls, ExperimentPlayer, formatDelta, parameterChanges } from './ExperimentParts';
 import { ProfileView } from './ProfileView';
-import { formatCoordinates, formatDateTime, formatDirection, formatValue } from './format';
+import { formatCoordinates, formatDateTime, formatValue } from './format';
 
 interface TempestaLabPanelProps {
   readonly simulation: SimulationState;
@@ -51,11 +41,6 @@ interface TempestaLabPanelProps {
   readonly saveMessage: string | null;
 }
 
-const PARAMETER_LABELS: Record<keyof SimulationParameters, string> = {
-  temperature: 'Temperatura',
-  relativeHumidity: 'Umidità',
-  windSpeed: 'Vento',
-};
 
 const ASSUMED_LABELS: Record<AssumedField, string> = {
   temperature: 'temperatura',
@@ -68,9 +53,9 @@ const ORIGIN_LABELS: Record<SimulationState['originKind'], string> = {
   live: 'osservazione LIVE',
   'last-observation': 'ultima osservazione memorizzata',
   scenario: 'scenario salvato',
+  didactic: 'SCENARIO DIDATTICO',
 };
 
-const DECIMALS: Record<keyof SimulationParameters, number> = { temperature: 1, relativeHumidity: 0, windSpeed: 0 };
 
 export type Mission = 1 | 2 | 3;
 
@@ -102,22 +87,6 @@ function simSurface(simulation: SimulationState): SurfaceAir {
   return { ...simulation.parameters, windDirection: simulation.origin.windDirection };
 }
 
-function realValue(simulation: SimulationState, key: keyof SimulationParameters): number | null {
-  return simulation.origin[key];
-}
-
-export function parameterChanges(simulation: SimulationState): ParameterChanges {
-  const diff = (key: keyof SimulationParameters) => {
-    const real = realValue(simulation, key);
-    return real === null ? 0 : simulation.parameters[key] - real;
-  };
-  return { temperature: diff('temperature'), relativeHumidity: diff('relativeHumidity'), windSpeed: diff('windSpeed') };
-}
-
-function formatDelta(value: number, unit: string, decimals: number): string {
-  if (Math.abs(value) < 10 ** -decimals / 2) return `0 ${unit}`;
-  return `${value > 0 ? '+' : '−'}${formatValue(Math.abs(value), unit, decimals)}`;
-}
 
 export function TempestaLabPanel(props: TempestaLabPanelProps) {
   const { simulation } = props;
@@ -275,54 +244,11 @@ function LabSetup(
         </p>
       )}
 
-      <fieldset className="parameters">
-        <legend>Atmosfera al suolo</legend>
-        {(Object.keys(PARAMETER_LIMITS) as (keyof SimulationParameters)[]).map((key) => {
-          const limits = PARAMETER_LIMITS[key];
-          const inputId = `${baseId}-${key}`;
-          const value = simulation.parameters[key];
-          const real = realValue(simulation, key);
-          const decimals = DECIMALS[key];
-          return (
-            <div className="parameter" key={key}>
-              <label htmlFor={inputId} className="parameter__name">
-                {PARAMETER_LABELS[key]}
-                {key === 'windSpeed' && (
-                  <span className="parameter__hint">da {formatDirection(simulation.origin.windDirection)}</span>
-                )}
-              </label>
-              <dl className="compare">
-                <div>
-                  <dt>REALE</dt>
-                  <dd className="compare__real">{formatValue(real, limits.unit, decimals)}</dd>
-                </div>
-                <div>
-                  <dt>SIM</dt>
-                  <dd className="compare__sim">
-                    <output htmlFor={inputId}>{formatValue(value, limits.unit, decimals)}</output>
-                  </dd>
-                </div>
-                <div>
-                  <dt>Δ</dt>
-                  <dd>{real === null ? '—' : formatDelta(value - real, limits.unit, decimals)}</dd>
-                </div>
-              </dl>
-              <input
-                id={inputId}
-                type="range"
-                min={limits.min}
-                max={limits.max}
-                step={limits.step}
-                value={value}
-                onChange={(event) => props.onChangeParameter(key, Number(event.target.value))}
-              />
-            </div>
-          );
-        })}
+      <AtmosphereControls simulation={simulation} baseId={baseId} referenceLabel="REALE" onChange={props.onChangeParameter}>
         <button type="button" className="button button--small button--ghost" onClick={props.onRestoreReal}>
           Ripristina valori reali
         </button>
-      </fieldset>
+      </AtmosphereControls>
 
       <button type="button" className="button button--start" onClick={props.onStart}>
         AVVIA ESPERIMENTO
@@ -338,7 +264,6 @@ function Experiment(
   const changes = parameterChanges(simulation);
   const minute = simulation.currentMinute;
   const frame = outlook.frames.find((item) => item.minute === minute);
-  const progress = (minute / SIMULATION_DURATION_MINUTES) * 100;
   const summary = summarize(outlook, simulation.parameters, changes);
   const developed = outlook.develops;
 
@@ -358,76 +283,18 @@ function Experiment(
 
       {developed && frame && (
         <>
-          <div className="stage-line" aria-live="polite">
-            <span className="stage-line__time">{formatOffset(minute)}</span>
-            <span className="stage-line__stage">{STAGE_LABELS[frame.stage]}</span>
-          </div>
-          <p className="lab-sentence">{phaseSentence(outlook, minute, changes)}</p>
-          {severe && <SevereNow severe={severe} minute={minute} />}
-          {severe && <CellSectionView convection={outlook} severe={severe} minute={minute} />}
-
-          <div className="timeline" role="group" aria-label="Timeline dell'esperimento, da T+0 a T+90 minuti">
-            <div className="timeline__track" aria-hidden="true">
-              <div className="timeline__fill" style={{ width: `${progress}%` }} />
-            </div>
-            <ol className="timeline__steps">
-              {TIMELINE_MINUTES.map((step) => {
-                const stage = outlook.frames.find((item) => item.minute === step)?.stage ?? 'NONE';
-                return (
-                  <li key={step}>
-                    <button
-                      type="button"
-                      className={`timeline__step timeline__step--${stage.toLowerCase()}`}
-                      aria-pressed={step === minute}
-                      aria-label={`Vai a ${formatOffset(step)} minuti: ${STAGE_LABELS[stage]}`}
-                      onClick={() => props.onSeek(step)}
-                    >
-                      {formatOffset(step)}
-                    </button>
-                  </li>
-                );
-              })}
-            </ol>
-          </div>
-
-          <div className="controls-row" role="group" aria-label="Comandi dell'esperimento">
-            {playing ? (
-              <button type="button" className="button" onClick={props.onPause}>
-                PAUSA
-              </button>
-            ) : (
-              <button type="button" className="button button--sim" onClick={props.onPlay} disabled={finished}>
-                PLAY
-              </button>
-            )}
-            <button type="button" className="button" onClick={props.onStep} disabled={finished}>
-              STEP ▸
-            </button>
-            <button type="button" className="button" onClick={props.onRestart}>
-              RESET
-            </button>
-          </div>
-
-          <dl className="cell-stats">
-            <div>
-              <dt>Riflettività</dt>
-              <dd>{frame.reflectivity > 0 ? `${frame.reflectivity.toFixed(0)} dBZ` : '—'}</dd>
-            </div>
-            <div>
-              <dt>Pioggia</dt>
-              <dd>{frame.precipitationIntensity > 0 ? formatValue(frame.precipitationIntensity, 'mm/h', 0) : '—'}</dd>
-            </div>
-            <div>
-              <dt>Raggio</dt>
-              <dd>{frame.radius > 0 ? formatValue(frame.radius, 'km', 0) : '—'}</dd>
-            </div>
-            <div>
-              <dt>Moto</dt>
-              <dd>
-                {outlook.cellSpeed < 1 ? 'ferma' : `${formatValue(outlook.cellSpeed, 'km/h', 0)} → ${formatDirection(outlook.cellDirection)}`}
-              </dd>
-            </div>
-          </dl>
+          <ExperimentPlayer
+            simulation={simulation}
+            outlook={outlook}
+            severe={severe}
+            playing={playing}
+            finished={finished}
+            onPlay={props.onPlay}
+            onPause={props.onPause}
+            onStep={props.onStep}
+            onRestart={props.onRestart}
+            onSeek={props.onSeek}
+          />
         </>
       )}
 
@@ -484,29 +351,6 @@ function Experiment(
         {developed ? 'MODIFICA L’ATMOSFERA' : 'MODIFICA L’ATMOSFERA E RIPROVA'}
       </button>
     </>
-  );
-}
-
-/** Stadio corrente di grandine e downburst (solo se il fenomeno è attivo). */
-function SevereNow({ severe, minute }: { readonly severe: SevereOutlook; readonly minute: number }) {
-  const hail = severe.hail.frames.find((frame) => frame.minute === minute)?.stage ?? 'NONE';
-  const burst = severe.downburst.frames.find((frame) => frame.minute === minute)?.stage ?? 'NONE';
-  const hailText = hailSentence(hail);
-  const burstText = downburstSentence(burst);
-  if (!hailText && !burstText) return null;
-  return (
-    <div className="severe-now" aria-live="polite">
-      {hailText && (
-        <p className="severe-now__item severe-now__item--hail">
-          <strong>GRANDINE · {HAIL_STAGE_LABELS[hail]}</strong> {hailText}
-        </p>
-      )}
-      {burstText && (
-        <p className="severe-now__item severe-now__item--burst">
-          <strong>DOWNBURST · {DOWNBURST_STAGE_LABELS[burst]}</strong> {burstText}
-        </p>
-      )}
-    </div>
   );
 }
 

@@ -47,7 +47,8 @@ export interface SimulationFrame {
   readonly saturated: boolean;
 }
 
-export type SimulationOrigin = 'live' | 'last-observation' | 'scenario';
+/** 'didactic' = SCENARIO DIDATTICO delle missioni (dati congelati, mai LIVE). */
+export type SimulationOrigin = 'live' | 'last-observation' | 'scenario' | 'didactic';
 
 export interface SimulationState {
   readonly kind: 'simulation';

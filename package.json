@@ -1,6 +1,6 @@
 {
   "name": "meteo-lab",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "METEO LAB — Osserva. Interpreta. Simula. Progressive Web App educativa e sperimentale dedicata alla meteorologia.",
   "author": "Alessandro Pezzali",
   "license": "MIT",
@@ -26,6 +26,7 @@
     "@vitejs/plugin-react": "^6.1.1",
     "eslint": "^10.11.0",
     "eslint-plugin-react-hooks": "^7.1.1",
+    "fake-indexeddb": "^6.2.5",
     "globals": "^17.12.0",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.70.1",

@@ -312,12 +312,21 @@ export default function MapView({ selected, onSelect, mode, prompt, experiment, 
       return;
     }
     const lngLat: [number, number] = [selected.longitude, selected.latitude];
+    // In SIM (laboratorio o missione) il punto deve essere ben visibile: se è fuori dalla zona
+    // centrale della mappa (sotto i riquadri o fuori vista) la mappa si centra sul punto.
+    if (mode === 'sim') {
+      const { x, y } = map.project(lngLat);
+      const { clientWidth: w, clientHeight: h } = map.getContainer();
+      if (x < w * 0.2 || x > w * 0.8 || y < h * 0.25 || y > h * 0.8) {
+        map.easeTo({ center: lngLat, zoom: Math.max(map.getZoom(), 7), duration: prefersReducedMotion() ? 0 : 800 });
+      }
+    }
     if (!markerRef.current) {
       markerRef.current = new Marker({ color: '#e8eef2', scale: 0.8 }).setLngLat(lngLat).addTo(map);
     } else {
       markerRef.current.setLngLat(lngLat);
     }
-  }, [selected]);
+  }, [selected, mode]);
 
   // Radar simulato: traiettoria, inquadratura e transizione animata fra i passi.
   useEffect(() => {

@@ -1,6 +1,9 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Footer } from './components/Footer';
-import { Header } from './components/Header';
+import { Header, type AppMode } from './components/Header';
+import { MissionControl } from './components/MissionControl';
+import { MissionHeader } from './components/MissionHeader';
+import { MissionPanel } from './components/MissionPanel';
 import { ObservationPanel } from './components/ObservationPanel';
 import { ScenarioList } from './components/ScenarioList';
 import { TempestaLabPanel } from './components/TempestaLabPanel';
@@ -8,6 +11,9 @@ import type { AppStatus } from './components/StatusBadge';
 import { formatCoordinates, formatDateTime } from './components/format';
 import { useOnlineStatus } from './components/useOnlineStatus';
 import { AtmosphereEngine } from './engine/AtmosphereEngine';
+import { MissionEngine, type Hypothesis, type MissionId, type MissionSession, type MissionSourceKind } from './game/MissionEngine';
+import { missionById } from './game/missions';
+import { EMPTY_PROGRESS, recordAttempt, withLastMission, type MissionProgress } from './game/progress';
 import type { MapPoint, MapPrompt } from './map/MapView';
 import type { AtmosphericProfile } from './models/AtmosphericProfile';
 import type { AtmosphericState } from './models/AtmosphericState';
@@ -19,7 +25,9 @@ import {
   listScenarios,
   loadLastObservation,
   loadLastProfile,
+  loadProgress,
   saveLastObservation,
+  saveProgress,
   saveLastProfile,
   saveScenario,
   type SavedScenario,
@@ -31,6 +39,15 @@ const MapView = lazy(() => import('./map/MapView'));
 const PLAYBACK_INTERVAL_MS = 1800;
 /** Oltre questa età un dato ricevuto non è più presentato come LIVE. */
 const LIVE_MAX_AGE_MS = 30 * 60_000;
+
+interface ActiveMission {
+  readonly id: MissionId;
+  readonly session: MissionSession;
+  readonly hypothesis: Hypothesis | null;
+  readonly hint: string | null;
+  /** false in LIVE CHALLENGE se il fenomeno non è ottenibile con le condizioni del momento. */
+  readonly feasible: boolean;
+}
 
 interface ObservationEntry {
   readonly state: AtmosphericState;
@@ -63,6 +80,12 @@ export function App() {
   const [playing, setPlaying] = useState(false);
   const [scenarios, setScenarios] = useState<SavedScenario[]>([]);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [mode, setMode] = useState<AppMode>('explore');
+  /** Laboratorio di ESPLORA conservato mentre si gioca alle MISSIONI. */
+  const [exploreStash, setExploreStash] = useState<SimulationState | null>(null);
+  const [progress, setProgress] = useState<MissionProgress>(EMPTY_PROGRESS);
+  const [mission, setMission] = useState<ActiveMission | null>(null);
+  const missionEngine = useMemo(() => new MissionEngine(engine), [engine]);
   const requestRef = useRef<AbortController | null>(null);
   const pointRequestedRef = useRef(false);
 
@@ -78,6 +101,9 @@ export function App() {
       .catch(() => undefined);
     listScenarios()
       .then(setScenarios)
+      .catch(() => undefined);
+    loadProgress()
+      .then(setProgress)
       .catch(() => undefined);
   }, []);
 
@@ -132,7 +158,7 @@ export function App() {
 
   const handleSelect = useCallback(
     (target: MapPoint) => {
-      if (simulation) return; // In SIM lo stato iniziale è congelato.
+      if (simulation) return; // In SIM (e durante una missione) lo stato iniziale è congelato.
       void requestObservation(target);
     },
     [simulation, requestObservation],
@@ -226,12 +252,89 @@ export function App() {
       .catch(() => setSaveMessage('Impossibile salvare lo scenario su questo dispositivo.'));
   };
 
+  const updateProgress = (next: MissionProgress) => {
+    setProgress(next);
+    saveProgress(next).catch(() => undefined);
+  };
+
+  const switchMode = (next: AppMode) => {
+    if (next === mode) return;
+    setPlaying(false);
+    if (next === 'missions') {
+      setExploreStash(simulation);
+      setSimulation(null);
+    } else {
+      setSimulation(exploreStash);
+      setExploreStash(null);
+    }
+    setMission(null);
+    setMode(next);
+  };
+
+  const playMission = (id: MissionId, source: MissionSourceKind) => {
+    const definition = missionById(id);
+    const live = source === 'live' && observation ? { observation: observation.state, profile } : null;
+    if (source === 'live' && !live) return;
+    const created = missionEngine.createSimulation(definition, source, live);
+    const session = missionEngine.startSession(definition, created, source);
+    setSimulation(created);
+    setPlaying(false);
+    setMission({
+      id,
+      session,
+      hypothesis: null,
+      hint: null,
+      feasible: source === 'scenario' || missionEngine.feasibility(definition, created, session),
+    });
+    updateProgress(withLastMission(progress, id));
+  };
+
+  const startMissionAttempt = () => {
+    if (!mission || !simulation || !mission.hypothesis) return;
+    const definition = missionById(mission.id);
+    const outcome = missionEngine.attempt(definition, mission.session, simulation, mission.hypothesis);
+    setSimulation(outcome.simulation);
+    setMission({ ...mission, session: outcome.session, hint: null });
+    setPlaying(outcome.simulation.convection?.develops ?? false);
+    updateProgress(recordAttempt(progress, outcome.result, outcome.evaluation, new Date()));
+  };
+
+  const retryMission = () => {
+    if (!mission) return;
+    setPlaying(false);
+    setSimulation((current) => (current ? engine.clearExperiment(current) : current));
+    setMission({ ...mission, hypothesis: null, hint: null });
+  };
+
+  const missionControl = () => {
+    setPlaying(false);
+    setSimulation(null);
+    setMission(null);
+  };
+
+  const playerHandlers = {
+    onPlay: () => {
+      if (simulation && !engine.isFinished(simulation)) setPlaying(true);
+    },
+    onPause: () => setPlaying(false),
+    onStep: () => {
+      setPlaying(false);
+      setSimulation((current) => (current ? engine.advance(current) : current));
+    },
+    onRestart: () => seek(0),
+    onSeek: seek,
+  };
+
+  const activeDefinition = mission ? missionById(mission.id) : null;
+
   const mapPoint = simulation
     ? { latitude: simulation.origin.latitude, longitude: simulation.origin.longitude }
     : (point ?? (observation ? { latitude: observation.state.latitude, longitude: observation.state.longitude } : null));
 
   const mapPrompt: MapPrompt | null = simulation
     ? null
+    : mode === 'missions'
+      ? null
     : loading
       ? 'loading'
       : observation && point && !error
@@ -239,11 +342,11 @@ export function App() {
         : 'pick';
 
   return (
-    <div className={`app app--${simulation ? 'sim' : 'live'}`}>
+    <div className={`app app--${simulation ? 'sim' : 'live'} app--${mode}`}>
       <a className="skip-link" href="#console">
         Vai ai dati
       </a>
-      <Header status={status} />
+      <Header status={status} mode={mode} onMode={switchMode} />
 
       {!online && (
         <p className="offline-bar" role="status">
@@ -254,6 +357,14 @@ export function App() {
 
       <main className="layout">
         <div className="layout__map">
+          {activeDefinition && mission && simulation && (
+            <MissionHeader
+              mission={activeDefinition}
+              source={mission.session.source}
+              attempt={simulation.convection ? mission.session.attempts : mission.session.attempts + 1}
+              hypothesis={simulation.convection ? (mission.session.lastResult?.hypothesis ?? null) : mission.hypothesis}
+            />
+          )}
           <Suspense fallback={<div className="map-frame map-frame--loading">Caricamento mappa…</div>}>
             <MapView
               selected={mapPoint}
@@ -265,13 +376,45 @@ export function App() {
               minute={simulation?.currentMinute ?? 0}
             />
           </Suspense>
-          {simulation && (
+          {simulation && mode === 'explore' && (
             <p className="map-hint">In SIM la condizione iniziale è congelata: torna al LIVE per selezionare un altro punto.</p>
+          )}
+          {mode === 'missions' && !simulation && (
+            <p className="map-hint">MISSIONI: scegli una missione. Per le LIVE CHALLENGE seleziona prima un punto sulla mappa.</p>
           )}
         </div>
 
         <div className="layout__console" id="console" tabIndex={-1}>
-          {simulation ? (
+          {mode === 'missions' ? (
+            activeDefinition && mission && simulation ? (
+              <MissionPanel
+                mission={activeDefinition}
+                session={mission.session}
+                simulation={simulation}
+                hypothesis={mission.hypothesis}
+                feasible={mission.feasible}
+                hint={mission.hint}
+                hintAvailable={missionEngine.hint(activeDefinition, mission.session) !== null}
+                playing={playing}
+                finished={engine.isFinished(simulation)}
+                onHypothesis={(hypothesis) => setMission({ ...mission, hypothesis })}
+                onChangeParameter={changeParameter}
+                onRestoreInitial={restoreRealValues}
+                onStart={startMissionAttempt}
+                onRetry={retryMission}
+                onHint={() => setMission({ ...mission, hint: missionEngine.hint(activeDefinition, mission.session) })}
+                onMissionControl={missionControl}
+                {...playerHandlers}
+              />
+            ) : (
+              <MissionControl
+                progress={progress}
+                liveObservation={observation?.state ?? null}
+                liveHasProfile={profile !== null}
+                onPlay={playMission}
+              />
+            )
+          ) : simulation ? (
             <TempestaLabPanel
               simulation={simulation}
               playing={playing}
@@ -305,7 +448,7 @@ export function App() {
               profile={profile}
             />
           )}
-          <ScenarioList scenarios={scenarios} onOpen={openScenario} onDelete={removeScenario} />
+          {mode === 'explore' && <ScenarioList scenarios={scenarios} onOpen={openScenario} onDelete={removeScenario} />}
         </div>
       </main>
 

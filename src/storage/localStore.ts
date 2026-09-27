@@ -1,5 +1,6 @@
 import type { AtmosphericProfile } from '../models/AtmosphericProfile';
 import type { AtmosphericState } from '../models/AtmosphericState';
+import { normalizeProgress, type MissionProgress } from '../game/progress';
 import type { SimulationParameters } from '../models/SimulationState';
 
 /**
@@ -8,11 +9,14 @@ import type { SimulationParameters } from '../models/SimulationState';
  *  - "observations": ultima osservazione reale valida (chiave "last") e il suo
  *                    PROFILO ATMOSFERICO (chiave "last-profile")
  *  - "scenarios":    scenari di simulazione salvati dall'utente
+ *  - "progress":     progressione delle MISSIONI (chiave "missions"), dalla versione 2 del database
  */
 const DB_NAME = 'meteo-lab';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const OBSERVATIONS = 'observations';
 const SCENARIOS = 'scenarios';
+const PROGRESS = 'progress';
+const PROGRESS_KEY = 'missions';
 const LAST_KEY = 'last';
 const LAST_PROFILE_KEY = 'last-profile';
 
@@ -42,8 +46,18 @@ function openDb(): Promise<IDBDatabase> {
       const db = request.result;
       if (!db.objectStoreNames.contains(OBSERVATIONS)) db.createObjectStore(OBSERVATIONS);
       if (!db.objectStoreNames.contains(SCENARIOS)) db.createObjectStore(SCENARIOS, { keyPath: 'id' });
+      // v2: aggiunge solo un archivio; i dati esistenti restano intatti.
+      if (!db.objectStoreNames.contains(PROGRESS)) db.createObjectStore(PROGRESS);
     };
-    request.onsuccess = () => resolve(request.result);
+    request.onsuccess = () => {
+      const db = request.result;
+      // Una versione più recente dell'app (altra scheda) può aggiornare il database senza restare bloccata.
+      db.onversionchange = () => {
+        db.close();
+        dbPromise = null;
+      };
+      resolve(db);
+    };
     request.onerror = () => {
       dbPromise = null;
       reject(request.error ?? new Error('Apertura IndexedDB fallita'));
@@ -94,4 +108,13 @@ export async function listScenarios(): Promise<SavedScenario[]> {
 
 export async function deleteScenario(id: string): Promise<void> {
   await run(SCENARIOS, 'readwrite', (store) => store.delete(id));
+}
+
+export async function saveProgress(progress: MissionProgress): Promise<void> {
+  await run(PROGRESS, 'readwrite', (store) => store.put(progress, PROGRESS_KEY));
+}
+
+export async function loadProgress(): Promise<MissionProgress> {
+  const value = await run<unknown>(PROGRESS, 'readonly', (store) => store.get(PROGRESS_KEY));
+  return normalizeProgress(value);
 }
