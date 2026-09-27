@@ -15,7 +15,7 @@ interface ObservationPanelProps {
   readonly loading: boolean;
   readonly error: string | null;
   readonly attribution: { readonly text: string; readonly url: string };
-  readonly onCreateSimulation: () => void;
+  readonly onEnterLab: () => void;
 }
 
 export function observationMetrics(o: AtmosphericState): Metric[] {
@@ -56,13 +56,13 @@ export function observationMetrics(o: AtmosphericState): Metric[] {
 }
 
 export function ObservationPanel(props: ObservationPanelProps) {
-  const { observation, isLive, loading, error, attribution, onCreateSimulation } = props;
+  const { observation, isLive, loading, error, attribution, onEnterLab } = props;
 
   return (
     <section className="panel panel--observation" aria-labelledby="observation-title">
       <div className="panel__head">
         <h2 id="observation-title" className="panel__title">
-          {isLive ? 'Osservazione LIVE' : observation ? 'ULTIMA OSSERVAZIONE' : 'Osservazione'}
+          {isLive ? 'OSSERVAZIONE ACQUISITA · LIVE' : observation ? 'ULTIMA OSSERVAZIONE' : 'Osservazione'}
         </h2>
         {loading && (
           <p className="panel__note" role="status">
@@ -78,7 +78,9 @@ export function ObservationPanel(props: ObservationPanelProps) {
       )}
 
       {!observation && !loading && (
-        <p className="panel__empty">Seleziona un punto sulla mappa per richiedere lo stato atmosferico reale.</p>
+        <p className="panel__empty">
+          <strong>SCEGLI UN PUNTO SULLA MAPPA</strong> per acquisire lo stato atmosferico reale.
+        </p>
       )}
 
       {observation && (
@@ -102,8 +104,8 @@ export function ObservationPanel(props: ObservationPanelProps) {
               {attribution.text}
             </a>
           </p>
-          <button type="button" className="button button--primary" onClick={onCreateSimulation}>
-            CREA SIMULAZIONE
+          <button type="button" className="button button--primary button--lab" onClick={onEnterLab}>
+            ENTRA NEL LAB
           </button>
         </>
       )}

@@ -39,3 +39,23 @@ export function round(value: number, decimals = 1): number {
   const factor = 10 ** decimals;
   return Math.round(value * factor) / factor;
 }
+
+/** Tensione di vapore saturo (hPa) su acqua a temperatura T (°C) — Magnus, stessi coefficienti. */
+export function saturationVaporPressure(temperature: number): number {
+  return 6.1094 * Math.exp((MAGNUS_A * temperature) / (MAGNUS_B + temperature));
+}
+
+/** Rapporto di mescolanza di saturazione (kg/kg) a temperatura T (°C) e pressione p (hPa). */
+export function saturationMixingRatio(temperature: number, pressure: number): number {
+  const es = Math.min(saturationVaporPressure(temperature), pressure * 0.5);
+  return (0.622 * es) / (pressure - es);
+}
+
+export function smoothstep(value: number, edge0: number, edge1: number): number {
+  const x = clamp((value - edge0) / (edge1 - edge0), 0, 1);
+  return x * x * (3 - 2 * x);
+}
+
+export function lerp(a: number, b: number, t: number): number {
+  return a + (b - a) * t;
+}

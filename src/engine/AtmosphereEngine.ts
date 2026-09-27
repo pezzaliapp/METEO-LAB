@@ -8,6 +8,7 @@ import {
   type SimulationState,
 } from '../models/SimulationState';
 import { SIMULATION_STEP_MINUTES, TIMELINE_MINUTES, isTimelineMinute, nextMinute } from '../simulation/timeline';
+import { ConvectiveEngine, type ConvectiveOutlook } from './ConvectiveEngine';
 import { clamp, dewPointFrom, relativeHumidityFrom, round, solarFactor } from './physics';
 
 /**
@@ -28,7 +29,11 @@ import { clamp, dewPointFrom, relativeHumidityFrom, round, solarFactor } from '.
  *     relativa resta al 100 %.
  *  5. Nubi: umidità alta favorisce la formazione di nubi, aria secca le dissolve.
  *     Con saturazione e cielo coperto compare una debole precipitazione.
- *  6. Pressione e direzione del vento restano invariate nel modello 0.1.
+ *  6. Pressione e direzione del vento restano invariate nel modello.
+ *
+ * TEMPESTA LAB (0.2): con «AVVIA ESPERIMENTO» il motore delega al ConvectiveEngine
+ * la valutazione delle condizioni simulate (sviluppo convettivo, ciclo di vita e
+ * spostamento della cella), anch'esso didattico e deterministico.
  *
  * Il motore non modifica mai l'AtmosphericState ricevuto: ne conserva una copia
  * congelata e lavora esclusivamente su SimulationState.
@@ -81,6 +86,8 @@ interface CreateOptions {
 }
 
 export class AtmosphereEngine {
+  private readonly convective = new ConvectiveEngine();
+
   /**
    * Crea un nuovo SimulationState copiando l'AtmosphericState (LIVE → SIM).
    * L'osservazione originale non viene toccata.
@@ -115,6 +122,7 @@ export class AtmosphereEngine {
       assumed: Object.freeze(assumed),
       timeline: [],
       currentMinute: 0,
+      convection: null,
     };
     return freezeState({ ...draft, timeline: this.computeTimeline(origin, parameters, initialCloudCover) });
   }
@@ -127,6 +135,36 @@ export class AtmosphereEngine {
       ...simulation,
       parameters,
       timeline: this.computeTimeline(simulation.origin, parameters, initialCloudCover),
+      currentMinute: 0,
+      convection: null,
+    });
+  }
+
+  /**
+   * AVVIA ESPERIMENTO: valuta con il ConvectiveEngine se le condizioni simulate
+   * favoriscono la convezione e riporta la timeline a T+0.
+   */
+  startExperiment(simulation: SimulationState): SimulationState {
+    return freezeState({ ...simulation, currentMinute: 0, convection: this.evaluateConvection(simulation) });
+  }
+
+  /** Torna alla preparazione dell'esperimento, mantenendo i parametri scelti. */
+  clearExperiment(simulation: SimulationState): SimulationState {
+    return freezeState({ ...simulation, currentMinute: 0, convection: null });
+  }
+
+  evaluateConvection(simulation: SimulationState): ConvectiveOutlook {
+    const { origin, parameters } = simulation;
+    return this.convective.evaluate({
+      temperature: parameters.temperature,
+      relativeHumidity: parameters.relativeHumidity,
+      windSpeed: parameters.windSpeed,
+      windDirection: origin.windDirection,
+      // Senza temperatura reale l'ambiente coincide con il valore didattico iniziale.
+      environmentTemperature: origin.temperature ?? DIDACTIC_DEFAULTS.temperature,
+      surfacePressure: origin.surfacePressure,
+      latitude: origin.latitude,
+      longitude: origin.longitude,
     });
   }
 

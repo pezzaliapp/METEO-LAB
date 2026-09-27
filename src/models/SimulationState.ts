@@ -1,3 +1,4 @@
+import type { ConvectiveOutlook } from '../engine/ConvectiveEngine';
 import type { AtmosphericState } from './AtmosphericState';
 
 /**
@@ -32,9 +33,9 @@ export interface SimulationFrame {
   readonly windSpeed: number;
   /** km/h */
   readonly windGust: number;
-  /** ° — invariata nel modello 0.1 */
+  /** ° — invariata nel modello */
   readonly windDirection: number | null;
-  /** hPa — invariata nel modello 0.1 */
+  /** hPa — invariata nel modello */
   readonly pressure: number | null;
   /** % */
   readonly cloudCover: number;
@@ -58,6 +59,11 @@ export interface SimulationState {
   readonly assumed: readonly AssumedField[];
   readonly timeline: readonly SimulationFrame[];
   readonly currentMinute: number;
+  /**
+   * Esperimento TEMPESTA LAB avviato con i parametri correnti (null = laboratorio in preparazione).
+   * Si annulla quando l'utente modifica di nuovo l'atmosfera.
+   */
+  readonly convection: ConvectiveOutlook | null;
 }
 
 /** Limiti dei controlli utente. */

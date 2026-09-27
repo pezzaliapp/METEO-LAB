@@ -3,12 +3,12 @@ import { Footer } from './components/Footer';
 import { Header } from './components/Header';
 import { ObservationPanel } from './components/ObservationPanel';
 import { ScenarioList } from './components/ScenarioList';
-import { SimulationPanel } from './components/SimulationPanel';
+import { TempestaLabPanel } from './components/TempestaLabPanel';
 import type { AppStatus } from './components/StatusBadge';
 import { formatCoordinates, formatDateTime } from './components/format';
 import { useOnlineStatus } from './components/useOnlineStatus';
 import { AtmosphereEngine } from './engine/AtmosphereEngine';
-import type { MapPoint } from './map/MapView';
+import type { MapPoint, MapPrompt } from './map/MapView';
 import type { AtmosphericState } from './models/AtmosphericState';
 import type { SimulationParameters, SimulationState } from './models/SimulationState';
 import { defaultProvider } from './providers';
@@ -24,8 +24,8 @@ import {
 
 const MapView = lazy(() => import('./map/MapView'));
 
-/** Intervallo tra due passi della timeline durante la riproduzione. */
-const PLAYBACK_INTERVAL_MS = 1200;
+/** Intervallo tra due passi della timeline durante la riproduzione (tempo per osservare la mappa). */
+const PLAYBACK_INTERVAL_MS = 1800;
 /** Oltre questa età un dato ricevuto non è più presentato come LIVE. */
 const LIVE_MAX_AGE_MS = 30 * 60_000;
 
@@ -131,11 +131,33 @@ export function App() {
     return () => window.clearInterval(timer);
   }, [playing, engine]);
 
-  const createSimulation = () => {
+  const enterLab = () => {
     if (!observation) return;
     setSimulation(engine.createSimulation(observation.state, { originKind: isLive ? 'live' : 'last-observation' }));
     setPlaying(false);
     setSaveMessage(null);
+  };
+
+  const startExperiment = () => {
+    if (!simulation) return;
+    const started = engine.startExperiment(simulation);
+    setSimulation(started);
+    setPlaying(started.convection?.develops ?? false);
+  };
+
+  const modifyAtmosphere = () => {
+    setPlaying(false);
+    setSimulation((current) => (current ? engine.clearExperiment(current) : current));
+  };
+
+  const restoreRealValues = () => {
+    setPlaying(false);
+    setSimulation((current) => (current ? engine.reset(current) : current));
+  };
+
+  const seek = (minute: number) => {
+    setPlaying(false);
+    setSimulation((current) => (current ? engine.seek(current, minute) : current));
   };
 
   const openScenario = (scenario: SavedScenario) => {
@@ -159,6 +181,7 @@ export function App() {
   };
 
   const changeParameter = (key: keyof SimulationParameters, value: number) => {
+    setPlaying(false);
     setSimulation((current) => (current ? engine.withParameters(current, { [key]: value }) : current));
   };
 
@@ -181,10 +204,17 @@ export function App() {
       .catch(() => setSaveMessage('Impossibile salvare lo scenario su questo dispositivo.'));
   };
 
-  const frame = simulation ? engine.currentFrame(simulation) : null;
   const mapPoint = simulation
     ? { latitude: simulation.origin.latitude, longitude: simulation.origin.longitude }
     : (point ?? (observation ? { latitude: observation.state.latitude, longitude: observation.state.longitude } : null));
+
+  const mapPrompt: MapPrompt | null = simulation
+    ? null
+    : loading
+      ? 'loading'
+      : observation && point && !error
+        ? 'acquired'
+        : 'pick';
 
   return (
     <div className={`app app--${simulation ? 'sim' : 'live'}`}>
@@ -203,7 +233,14 @@ export function App() {
       <main className="layout">
         <div className="layout__map">
           <Suspense fallback={<div className="map-frame map-frame--loading">Caricamento mappa…</div>}>
-            <MapView selected={mapPoint} onSelect={handleSelect} mode={simulation ? 'sim' : 'live'} />
+            <MapView
+              selected={mapPoint}
+              onSelect={handleSelect}
+              mode={simulation ? 'sim' : 'live'}
+              prompt={mapPrompt}
+              experiment={simulation?.convection ?? null}
+              minute={simulation?.currentMinute ?? 0}
+            />
           </Suspense>
           {simulation && (
             <p className="map-hint">In SIM la condizione iniziale è congelata: torna al LIVE per selezionare un altro punto.</p>
@@ -211,24 +248,26 @@ export function App() {
         </div>
 
         <div className="layout__console" id="console" tabIndex={-1}>
-          {simulation && frame ? (
-            <SimulationPanel
+          {simulation ? (
+            <TempestaLabPanel
               simulation={simulation}
-              frame={frame}
               playing={playing}
               finished={engine.isFinished(simulation)}
-              onPlay={() => setPlaying(true)}
-              onPause={() => setPlaying(false)}
-              onReset={() => {
-                setPlaying(false);
-                setSimulation((current) => (current ? engine.reset(current) : current));
-              }}
-              onBackToLive={backToLive}
-              onSeek={(minute) => {
-                setPlaying(false);
-                setSimulation((current) => (current ? engine.seek(current, minute) : current));
-              }}
               onChangeParameter={changeParameter}
+              onRestoreReal={restoreRealValues}
+              onStart={startExperiment}
+              onModify={modifyAtmosphere}
+              onPlay={() => {
+                if (!engine.isFinished(simulation)) setPlaying(true);
+              }}
+              onPause={() => setPlaying(false)}
+              onStep={() => {
+                setPlaying(false);
+                setSimulation((current) => (current ? engine.advance(current) : current));
+              }}
+              onRestart={() => seek(0)}
+              onSeek={seek}
+              onBackToLive={backToLive}
               onSave={saveCurrentScenario}
               saveMessage={saveMessage}
             />
@@ -239,7 +278,7 @@ export function App() {
               loading={loading}
               error={error}
               attribution={provider.attribution}
-              onCreateSimulation={createSimulation}
+              onEnterLab={enterLab}
             />
           )}
           <ScenarioList scenarios={scenarios} onOpen={openScenario} onDelete={removeScenario} />

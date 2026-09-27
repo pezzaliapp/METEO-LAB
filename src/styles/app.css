@@ -548,8 +548,301 @@ tr[aria-current='step'] {
   margin: 0;
 }
 
+/* Mappa: messaggi guida e RADAR SIMULATO ---------------------------------- */
+
+.map-prompt {
+  position: absolute;
+  left: 50%;
+  bottom: 2.2rem;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 0.45rem 0.9rem;
+  max-width: calc(100% - 2rem);
+  background: rgba(14, 20, 24, 0.9);
+  border: 1px solid var(--live);
+  border-radius: 999px;
+  color: var(--live);
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-align: center;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.map-prompt--pick {
+  animation: prompt-pulse 2.2s ease-in-out infinite;
+}
+.map-prompt--loading {
+  border-style: dotted;
+}
+.map-prompt--none {
+  border: 2px dashed var(--sim);
+  border-radius: var(--radius);
+  color: var(--sim);
+}
+@keyframes prompt-pulse {
+  50% {
+    box-shadow: 0 0 0 6px rgba(127, 212, 193, 0.18);
+  }
+}
+
+.map-sim-badge {
+  position: absolute;
+  left: 0.5rem;
+  top: 0.5rem;
+  display: grid;
+  gap: 0.1rem;
+  padding: 0.4rem 0.65rem;
+  background: rgba(14, 20, 24, 0.9);
+  border: 2px dashed var(--sim);
+  border-radius: var(--radius);
+  color: var(--sim);
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  pointer-events: none;
+}
+.map-sim-badge strong {
+  font-size: 0.8rem;
+  letter-spacing: 0.1em;
+}
+.map-sim-badge span {
+  color: var(--text-muted);
+}
+.map-sim-badge .map-sim-badge__time {
+  color: var(--text);
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.radar-legend {
+  position: absolute;
+  left: 0.5rem;
+  bottom: 2.2rem;
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.4rem 0.6rem;
+  background: rgba(14, 20, 24, 0.9);
+  border: 1px dashed var(--sim);
+  border-radius: var(--radius);
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+.radar-legend__title {
+  color: var(--sim);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+.radar-legend__scale {
+  display: grid;
+  grid-template-columns: repeat(4, 22px);
+  height: 8px;
+}
+.radar-legend__labels {
+  display: flex;
+  justify-content: space-between;
+}
+
+/* Su schermi stretti l'attribuzione della mappa occupa due righe. */
+@media (max-width: 599px) {
+  .map-prompt,
+  .radar-legend {
+    bottom: 4.4rem;
+  }
+}
+
+/* TEMPESTA LAB ------------------------------------------------------------ */
+
+.lab-title {
+  color: var(--sim);
+  letter-spacing: 0.14em;
+}
+.mission {
+  margin: 0 0 0.9rem;
+  padding: 0.7rem 0.8rem;
+  border-left: 3px solid var(--sim);
+  background: var(--surface-2);
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+.mission__tag {
+  margin: 0 0 0.3rem;
+  color: var(--sim);
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+.mission__text {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.parameter__name {
+  font-weight: 600;
+}
+.parameter__hint {
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  font-weight: 400;
+}
+.compare {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.25rem;
+  margin: 0.35rem 0 0;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+.compare dt {
+  color: var(--text-muted);
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+}
+.compare dd {
+  margin: 0;
+  font-size: 0.9rem;
+}
+.compare__real {
+  color: var(--live);
+}
+.compare__sim,
+.compare__sim output {
+  color: var(--sim);
+}
+.parameters .button--small {
+  margin-top: 0.8rem;
+}
+
+.button--start,
+.button--wide {
+  width: 100%;
+  margin: 0 0 1rem;
+}
+.button--start {
+  min-height: 52px;
+  background: var(--sim);
+  border-color: var(--sim);
+  color: #1a1408;
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+}
+.button--start:hover:not(:disabled) {
+  border-color: #fff;
+}
+.button--lab {
+  min-height: 48px;
+  font-size: 0.95rem;
+  letter-spacing: 0.1em;
+}
+
+.outcome {
+  margin: 0 0 0.6rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: var(--radius);
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+.outcome--storm {
+  background: rgba(232, 176, 75, 0.14);
+  color: var(--sim);
+}
+.outcome--none {
+  background: var(--surface-2);
+  color: var(--text);
+  border-left: 3px solid var(--text-muted);
+}
+.lab-sentence {
+  margin: 0 0 0.9rem;
+  font-size: 0.95rem;
+}
+.stage-line {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  margin: 0 0 0.25rem;
+  font-family: var(--mono);
+}
+.stage-line__time {
+  color: var(--sim);
+  font-size: 1.3rem;
+  font-weight: 800;
+}
+.stage-line__stage {
+  font-size: 0.85rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.timeline__step--initiation,
+.timeline__step--dissipating {
+  box-shadow: inset 0 -3px 0 #2fae4e;
+}
+.timeline__step--developing,
+.timeline__step--weakening {
+  box-shadow: inset 0 -3px 0 #f1d33b;
+}
+.timeline__step--mature {
+  box-shadow: inset 0 -3px 0 #f28c28;
+}
+
+.cell-stats,
+.result__list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 0.4rem;
+  margin: 0 0 1rem;
+}
+.cell-stats div,
+.result__list div {
+  padding: 0.45rem 0.6rem;
+  background: var(--surface-2);
+  border-radius: var(--radius);
+}
+.cell-stats dt,
+.result__list dt {
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.cell-stats dd,
+.result__list dd {
+  margin: 0.1rem 0 0;
+  font-family: var(--mono);
+  font-size: 0.85rem;
+}
+.result {
+  margin: 0 0 0.5rem;
+  padding: 0.75rem;
+  border: 1px solid var(--sim);
+  border-radius: var(--radius);
+}
+.result__title {
+  margin: 0 0 0.6rem;
+  color: var(--sim);
+  font-family: var(--mono);
+  font-weight: 800;
+  letter-spacing: 0.1em;
+}
+.result__list {
+  grid-template-columns: 1fr;
+  margin-bottom: 0.75rem;
+}
+.result .lab-sentence {
+  margin: 0;
+  font-size: 0.88rem;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .timeline__fill {
     transition: none;
+  }
+  .map-prompt--pick {
+    animation: none;
   }
 }
